@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Totem - Teste</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100vw; height: 100vh;
+    overflow: hidden;
+    font-family: sans-serif;
+  }
+
+  /* Estado: carregando (splash inicial, antes de saber se a API responde) */
+  #carregando {
+    display: none;
+    width: 100%; height: 100%;
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    background: #10131a;
+    color: #fff;
+  }
+  #carregando .spinner {
+    width: 48px; height: 48px;
+    border: 5px solid rgba(255,255,255,0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: girar 0.9s linear infinite;
+    margin-bottom: 16px;
+  }
+  @keyframes girar { to { transform: rotate(360deg); } }
+
+  /* Estado: oferta normal */
+  #oferta {
+    display: none;
+    width: 100%; height: 100%;
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    color: #fff;
+    text-align: center;
+    transition: background-color 0.4s ease;
+  }
+  #oferta .titulo { font-size: 8vw; font-weight: bold; margin-bottom: 1vh; }
+  #oferta .preco { font-size: 14vw; font-weight: 900; }
+  #oferta .categoria { font-size: 3vw; opacity: 0.8; margin-top: 2vh; text-transform: uppercase; letter-spacing: 2px; }
+
+  /* Estado: fallback de erro (branded, placeholder de identidade visual do
+     Atacadão — sem assets reais disponíveis ainda) */
+  #fallback {
+    display: none;
+    width: 100%; height: 100%;
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    background: linear-gradient(160deg, #003DA5 0%, #001B45 100%);
+    color: #fff;
+    text-align: center;
+    box-sizing: border-box;
+    padding: 24px;
+  }
+  #fallback .logo-placeholder {
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    background: #E30613;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 22px; letter-spacing: 1px;
+    margin-bottom: 24px;
+  }
+  #fallback .titulo { font-size: 28px; font-weight: bold; margin-bottom: 8px; }
+  #fallback .subtitulo { font-size: 16px; opacity: 0.85; max-width: 480px; line-height: 1.4; }
+
+  #status {
+    position: fixed; bottom: 10px; right: 16px;
+    color: rgba(255,255,255,0.6);
+    font-size: 14px;
+    z-index: 30;
+  }
+
+  /* Painel só existe nesta página de teste, para alternar manualmente entre
+     os estados visuais e validar em hardware físico antes do backend
+     estar pronto. Não faz parte do player real (index.html). */
+  #controles {
+    position: fixed; top: 8px; left: 8px; z-index: 30;
+    display: flex; gap: 8px;
+  }
+  #controles button {
+    font-size: 12px; padding: 6px 10px; cursor: pointer;
+    border: none; border-radius: 4px; background: rgba(255,255,255,0.85);
+  }
+</style>
+</head>
+<body>
+  <div id="controles">
+    <button onclick="TotemTeste.mostrarCarregando()">Carregando</button>
+    <button onclick="TotemTeste.mostrarOfertaDemo()">Oferta normal</button>
+    <button onclick="TotemTeste.mostrarErro()">Erro / fallback</button>
+  </div>
+
+  <div id="carregando">
+    <div class="spinner"></div>
+    <div>carregando ofertas…</div>
+  </div>
+
+  <div id="oferta"></div>
+
+  <div id="fallback">
+    <div class="logo-placeholder">ATC</div>
+    <div class="titulo">Estamos atualizando as ofertas</div>
+    <div class="subtitulo">Não foi possível carregar as ofertas no momento. O totem vai continuar tentando se reconectar automaticamente.</div>
+  </div>
+
+  <div id="status">modo teste — sem backend</div>
+
+  <script>
+    // Página standalone (sem backend, sem os módulos de TotemPlayer) só pra
+    // validar visualmente em hardware físico como cada estado do player
+    // real (index.html) se parece: carregando, oferta normal e o fallback
+    // de erro/offline sem cache. Alterna sozinha em loop e também permite
+    // troca manual pelos botões do canto superior esquerdo.
+
+    const ofertasFake = [
+      { titulo: 'Arroz 5kg', preco: 'R$ 19,90', categoria: 'Mercearia', cor: '#c0392b' },
+      { titulo: 'Óleo de Soja 900ml', preco: 'R$ 7,49', categoria: 'Mercearia', cor: '#27ae60' },
+      { titulo: 'Carne Bovina kg', preco: 'R$ 34,90', categoria: 'Açougue', cor: '#2980b9' },
+      { titulo: 'Refrigerante 2L', preco: 'R$ 8,99', categoria: 'Bebidas', cor: '#8e44ad' },
+      { titulo: 'Detergente 500ml', preco: 'R$ 2,49', categoria: 'Limpeza', cor: '#d35400' },
+    ];
+
+    const TEMPO_POR_OFERTA_MS = 8000;
+    let indiceOferta = 0;
+    let intervalOfertaId = null;
+    let cicloAutoplayId = null;
+
+    const telas = {
+      carregando: document.getElementById('carregando'),
+      oferta: document.getElementById('oferta'),
+      fallback: document.getElementById('fallback'),
+    };
+
+    function mostrarTela(nome) {
+      Object.keys(telas).forEach((chave) => {
+        telas[chave].style.display = chave === nome ? 'flex' : 'none';
+      });
+    }
+
+    function renderizarOferta(oferta) {
+      const el = telas.oferta;
+      el.style.backgroundColor = oferta.cor;
+      el.innerHTML = `
+        <div class="titulo">${oferta.titulo}</div>
+        <div class="preco">${oferta.preco}</div>
+        <div class="categoria">${oferta.categoria}</div>
+      `;
+    }
+
+    function pararRotacaoOfertas() {
+      if (intervalOfertaId) {
+        clearInterval(intervalOfertaId);
+        intervalOfertaId = null;
+      }
+    }
+
+    function mostrarCarregando() {
+      pararRotacaoOfertas();
+      mostrarTela('carregando');
+    }
+
+    function mostrarOfertaDemo() {
+      pararRotacaoOfertas();
+      mostrarTela('oferta');
+      renderizarOferta(ofertasFake[indiceOferta]);
+      intervalOfertaId = setInterval(() => {
+        indiceOferta = (indiceOferta + 1) % ofertasFake.length;
+        renderizarOferta(ofertasFake[indiceOferta]);
+      }, TEMPO_POR_OFERTA_MS);
+    }
+
+    function mostrarErro() {
+      pararRotacaoOfertas();
+      mostrarTela('fallback');
+    }
+
+    // Autoplay: demonstra os 3 estados em sequência, sem precisar clicar,
+    // útil pra deixar rodando numa TV/totem físico só de olho.
+    function iniciarAutoplayDemo() {
+      const passos = [
+        { fn: mostrarCarregando, duracaoMs: 3000 },
+        { fn: mostrarOfertaDemo, duracaoMs: 5 * TEMPO_POR_OFERTA_MS },
+        { fn: mostrarErro, duracaoMs: 6000 },
+      ];
+      let passoAtual = 0;
+
+      function proximoPasso() {
+        const passo = passos[passoAtual];
+        passo.fn();
+        passoAtual = (passoAtual + 1) % passos.length;
+        cicloAutoplayId = setTimeout(proximoPasso, passo.duracaoMs);
+      }
+
+      proximoPasso();
+    }
+
+    function pararAutoplay() {
+      if (cicloAutoplayId) {
+        clearTimeout(cicloAutoplayId);
+        cicloAutoplayId = null;
+      }
+    }
+
+    // Clique manual nos botões assume o controle e para o autoplay, senão
+    // o passo seguinte da demo sobrescreveria a escolha do usuário.
+    window.TotemTeste = {
+      mostrarCarregando: () => { pararAutoplay(); mostrarCarregando(); },
+      mostrarOfertaDemo: () => { pararAutoplay(); mostrarOfertaDemo(); },
+      mostrarErro: () => { pararAutoplay(); mostrarErro(); },
+    };
+
+    iniciarAutoplayDemo();
+  </script>
+</body>
+</html>

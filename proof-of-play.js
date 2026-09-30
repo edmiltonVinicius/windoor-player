@@ -9,12 +9,12 @@ TotemPlayer.proofOfPlay = (function () {
 
     const { TOTEM_ID, API_URL } = TotemPlayer.config;
 
-    fetch(`${API_URL}/totens/${TOTEM_ID}/proof-of-play`, {
+    fetch(`${API_URL}/totems/${TOTEM_ID}/proof-of-play`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ofertaId: oferta.id,
-        duracaoMs: Math.max(0, Math.round(duracaoMs)),
+        offerId: oferta.id,
+        durationMs: Math.max(0, Math.round(duracaoMs)),
       }),
       // keepalive garante que o request tenta sair mesmo se a troca de
       // oferta coincidir com um unload/reload da página.

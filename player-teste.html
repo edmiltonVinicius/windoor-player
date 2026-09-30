@@ -118,11 +118,11 @@
     // troca manual pelos botões do canto superior esquerdo.
 
     const ofertasFake = [
-      { titulo: 'Arroz 5kg', preco: 'R$ 19,90', categoria: 'Mercearia', cor: '#c0392b' },
-      { titulo: 'Óleo de Soja 900ml', preco: 'R$ 7,49', categoria: 'Mercearia', cor: '#27ae60' },
-      { titulo: 'Carne Bovina kg', preco: 'R$ 34,90', categoria: 'Açougue', cor: '#2980b9' },
-      { titulo: 'Refrigerante 2L', preco: 'R$ 8,99', categoria: 'Bebidas', cor: '#8e44ad' },
-      { titulo: 'Detergente 500ml', preco: 'R$ 2,49', categoria: 'Limpeza', cor: '#d35400' },
+      { title: 'Arroz 5kg', price: 'R$ 19,90', category: 'Mercearia', cor: '#c0392b' },
+      { title: 'Óleo de Soja 900ml', price: 'R$ 7,49', category: 'Mercearia', cor: '#27ae60' },
+      { title: 'Carne Bovina kg', price: 'R$ 34,90', category: 'Açougue', cor: '#2980b9' },
+      { title: 'Refrigerante 2L', price: 'R$ 8,99', category: 'Bebidas', cor: '#8e44ad' },
+      { title: 'Detergente 500ml', price: 'R$ 2,49', category: 'Limpeza', cor: '#d35400' },
     ];
 
     const TEMPO_POR_OFERTA_MS = 8000;
@@ -146,9 +146,9 @@
       const el = telas.oferta;
       el.style.backgroundColor = oferta.cor;
       el.innerHTML = `
-        <div class="titulo">${oferta.titulo}</div>
-        <div class="preco">${oferta.preco}</div>
-        <div class="categoria">${oferta.categoria}</div>
+        <div class="titulo">${oferta.title}</div>
+        <div class="preco">${oferta.price}</div>
+        <div class="categoria">${oferta.category}</div>
       `;
     }
 

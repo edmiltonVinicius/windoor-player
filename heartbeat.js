@@ -17,13 +17,13 @@ TotemPlayer.heartbeat = (function () {
     const oferta = TotemPlayer.render.ofertaAtual();
 
     try {
-      await fetch(`${API_URL}/totens/${TOTEM_ID}/heartbeat`, {
+      await fetch(`${API_URL}/totems/${TOTEM_ID}/heartbeat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          versaoPlayer: VERSAO_PLAYER,
-          ultimaOfertaId: oferta ? oferta.id : null,
-          usoMemoriaMb: usoMemoriaMb(),
+          playerVersion: VERSAO_PLAYER,
+          lastOfferId: oferta ? oferta.id : null,
+          memoryUsageMb: usoMemoriaMb(),
         }),
       });
     } catch (erro) {

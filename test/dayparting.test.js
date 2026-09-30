@@ -24,39 +24,39 @@ function carregarModuloCache() {
 
 const cache = carregarModuloCache();
 
-test('oferta sem dayparting_inicio/fim é sempre válida', () => {
+test('oferta sem daypartingStart/daypartingEnd é sempre válida', () => {
   const oferta = { id: 1 };
   assert.equal(cache.estaDentroDoHorario(oferta, new Date(2026, 0, 1, 14, 0)), true);
 });
 
 test('janela normal (não cruza meia-noite): dentro do horário', () => {
-  const oferta = { dayparting_inicio: '08:00:00', dayparting_fim: '22:00:00' };
+  const oferta = { daypartingStart: '08:00:00', daypartingEnd: '22:00:00' };
   assert.equal(cache.estaDentroDoHorario(oferta, new Date(2026, 0, 1, 12, 0)), true);
   assert.equal(cache.estaDentroDoHorario(oferta, new Date(2026, 0, 1, 8, 0)), true);
   assert.equal(cache.estaDentroDoHorario(oferta, new Date(2026, 0, 1, 22, 0)), true);
 });
 
 test('janela normal: fora do horário', () => {
-  const oferta = { dayparting_inicio: '08:00:00', dayparting_fim: '22:00:00' };
+  const oferta = { daypartingStart: '08:00:00', daypartingEnd: '22:00:00' };
   assert.equal(cache.estaDentroDoHorario(oferta, new Date(2026, 0, 1, 6, 0)), false);
   assert.equal(cache.estaDentroDoHorario(oferta, new Date(2026, 0, 1, 23, 0)), false);
 });
 
 test('janela que cruza a meia-noite: dentro do horário', () => {
-  const oferta = { dayparting_inicio: '22:00:00', dayparting_fim: '06:00:00' };
+  const oferta = { daypartingStart: '22:00:00', daypartingEnd: '06:00:00' };
   assert.equal(cache.estaDentroDoHorario(oferta, new Date(2026, 0, 1, 23, 30)), true);
   assert.equal(cache.estaDentroDoHorario(oferta, new Date(2026, 0, 1, 1, 0)), true);
 });
 
 test('janela que cruza a meia-noite: fora do horário', () => {
-  const oferta = { dayparting_inicio: '22:00:00', dayparting_fim: '06:00:00' };
+  const oferta = { daypartingStart: '22:00:00', daypartingEnd: '06:00:00' };
   assert.equal(cache.estaDentroDoHorario(oferta, new Date(2026, 0, 1, 12, 0)), false);
 });
 
 test('filtrarPorDayparting mantém só ofertas válidas para o horário de referência', () => {
   const lista = [
-    { id: 1, dayparting_inicio: '08:00:00', dayparting_fim: '22:00:00' },
-    { id: 2, dayparting_inicio: '22:00:00', dayparting_fim: '06:00:00' },
+    { id: 1, daypartingStart: '08:00:00', daypartingEnd: '22:00:00' },
+    { id: 2, daypartingStart: '22:00:00', daypartingEnd: '06:00:00' },
     { id: 3 }, // sem restrição
   ];
   const agora = new Date(2026, 0, 1, 10, 0); // 10h da manhã
@@ -65,6 +65,6 @@ test('filtrarPorDayparting mantém só ofertas válidas para o horário de refer
 });
 
 test('formato HH:MM (sem segundos) também funciona', () => {
-  const oferta = { dayparting_inicio: '08:00', dayparting_fim: '22:00' };
+  const oferta = { daypartingStart: '08:00', daypartingEnd: '22:00' };
   assert.equal(cache.estaDentroDoHorario(oferta, new Date(2026, 0, 1, 12, 0)), true);
 });

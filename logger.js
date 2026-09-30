@@ -3,9 +3,9 @@ const TotemPlayer = window.TotemPlayer || (window.TotemPlayer = {});
 TotemPlayer.logger = (function () {
   function registrar(nivel, mensagem, contexto) {
     const linha = {
-      nivel,
-      mensagem,
-      contexto: contexto || {},
+      level: nivel,
+      message: mensagem,
+      context: contexto || {},
       totemId: TotemPlayer.config.TOTEM_ID,
       timestamp: new Date().toISOString(),
     };

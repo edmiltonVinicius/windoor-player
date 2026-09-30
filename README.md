@@ -21,9 +21,9 @@ config.js         → TotemPlayer.config     — lê TOTEM_ID da query string, U
 cache.js           → TotemPlayer.cache      — persiste/lê ofertas no IndexedDB; filtro de dayparting client-side
 render.js          → TotemPlayer.render     — desenha a oferta atual, loop de rotação, tela de fallback
 logger.js          → TotemPlayer.logger     — loga local (console) e remoto (POST /logs)
-heartbeat.js        → TotemPlayer.heartbeat  — POST /totens/:id/heartbeat a cada 30s
+heartbeat.js        → TotemPlayer.heartbeat  — POST /totems/:id/heartbeat a cada 30s
 commands.js         → TotemPlayer.commands   — reage a comandos remotos recebidos via WebSocket
-proof-of-play.js    → TotemPlayer.proofOfPlay — POST /totens/:id/proof-of-play ao trocar de oferta
+proof-of-play.js    → TotemPlayer.proofOfPlay — POST /totems/:id/proof-of-play ao trocar de oferta
 wakelock.js          → TotemPlayer.wakelock   — Wake Lock API, evita a tela apagar/suspender
 watchdog.js          → TotemPlayer.watchdog   — recarrega a página se o loop de exibição travar
 app.js               → orquestrador final: carrega estado inicial, conecta WebSocket, liga os outros módulos
@@ -36,18 +36,24 @@ player real se parece, antes do backend estar pronto — ver seção abaixo.
 
 ## Contrato de API consumido
 
-- `GET /totens/:totemId/ofertas` — lista de ofertas já filtrada por
-  dayparting no servidor.
-- `POST /totens/:totemId/heartbeat` — `{ versaoPlayer, ultimaOfertaId, usoMemoriaMb }`, a cada 30s.
-- `POST /totens/:totemId/proof-of-play` — `{ ofertaId, duracaoMs }`, disparado
+> O backend (`totem-backend`) traduziu todas as rotas, payloads e eventos
+> WebSocket de português para inglês (breaking change). O player foi
+> atualizado para o novo contrato; os nomes abaixo já refletem isso.
+
+- `GET /totems/:totemId/offers` — lista de ofertas já filtrada por
+  dayparting no servidor. Campos: `id`, `title`, `imageUrl`, `price`,
+  `category`, `periodStart`, `periodEnd`, `daypartingStart`,
+  `daypartingEnd`, `createdAt`, `updatedAt`.
+- `POST /totems/:totemId/heartbeat` — `{ playerVersion, lastOfferId, memoryUsageMb }`, a cada 30s.
+- `POST /totems/:totemId/proof-of-play` — `{ offerId, durationMs }`, disparado
   toda vez que uma oferta sai de cena (troca automática do loop de 8s ou
   nova lista chegando via WebSocket).
-- `POST /logs` — logs estruturados (nível, mensagem, contexto, totemId, timestamp).
+- `POST /logs` — logs estruturados (`level`, `message`, `context`, `totemId`, `timestamp`).
 - WebSocket (`socket.io`), conectado com `io(API_URL, { query: { totemId } })`:
-  - evento recebido `oferta:atualizada` — nova lista de ofertas.
-  - evento recebido `comando` — `{ tipo, payload }`, tipos `reload`,
-    `restart`, `trocar_url`, `atualizar_versao`. `reload` e `trocar_url` são
-    executados pelo próprio player; `restart` e `atualizar_versao` são só
+  - evento recebido `offer:updated` — `{ totemId, offers }`, nova lista de ofertas.
+  - evento recebido `command` — `{ type, payload }`, tipos `reload`,
+    `restart`, `change_url`, `update_version`. `reload` e `change_url` são
+    executados pelo próprio player; `restart` e `update_version` são só
     logados e repassados — quem executa de fato é o agente de kiosk nativo
     do SO (ver seção "Fora do escopo" abaixo).
 
@@ -78,10 +84,10 @@ loop, heartbeat, comandos remotos). Esta rodada fechou os gaps abaixo:
 3. **Proof of play (`proof-of-play.js`).** `render.js` agora guarda qual
    oferta está no ar e desde quando (`exibicaoIniciadaEm`). Toda vez que
    `mostrarOferta()` é chamada de novo — seja pelo loop automático de 8s,
-   seja por uma nova lista chegando via `oferta:atualizada` — a duração real
+   seja por uma nova lista chegando via `offer:updated` — a duração real
    da oferta anterior é calculada e reportada via
    `TotemPlayer.proofOfPlay.reportar(oferta, duracaoMs)`, que faz o `POST
-   /totens/:totemId/proof-of-play` com `keepalive: true` (pra não perder o
+   /totems/:totemId/proof-of-play` com `keepalive: true` (pra não perder o
    request se coincidir com um reload). Falha de rede aqui não é tratada
    como erro — só um log informativo, mesmo padrão do heartbeat.
 
@@ -97,8 +103,8 @@ loop, heartbeat, comandos remotos). Esta rodada fechou os gaps abaixo:
    navegador/processo/SO travando por completo, ver `deploy/README.md`).
 
 5. **Dayparting client-side (`cache.js`).** O filtro de horário
-   (`dayparting_inicio`/`dayparting_fim`, formato `HH:MM` ou `HH:MM:SS`) já é
-   responsabilidade do backend na resposta de `GET /ofertas`, mas como o
+   (`daypartingStart`/`daypartingEnd`, formato `HH:MM` ou `HH:MM:SS`) já é
+   responsabilidade do backend na resposta de `GET /offers`, mas como o
    totem pode ficar horas offline exibindo a lista salva em cache local, a
    lista cacheada pode conter ofertas cujo dayparting já não vale mais para
    o horário atual do dispositivo. `cache.filtrarPorDayparting(lista, agora)`
@@ -137,7 +143,7 @@ node --test test/dayparting.test.js
   uma ferramenta equivalente no Windows/Linux). Não há código relacionado a
   isso neste repositório, de propósito.
 - **Reinício do dispositivo / atualização de versão do player** (comandos
-  `restart` e `atualizar_versao` recebidos via WebSocket) — o player só
+  `restart` e `update_version` recebidos via WebSocket) — o player só
   loga e confirma o recebimento; quem executa de fato é a camada nativa
   (systemd no Linux, Agendador de Tarefas no Windows, Fully Kiosk no
   Android). Ver `deploy/README.md`.

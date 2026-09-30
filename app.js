@@ -3,7 +3,7 @@
 
   async function carregarEstadoInicial() {
     try {
-      const resp = await fetch(`${config.API_URL}/totens/${config.TOTEM_ID}/ofertas`);
+      const resp = await fetch(`${config.API_URL}/totems/${config.TOTEM_ID}/offers`);
       if (!resp.ok) throw new Error('resposta não-ok da API');
       const ofertas = await resp.json();
       await cache.salvarOfertas(ofertas);
@@ -31,7 +31,8 @@
 
     socket.on('connect', () => render.definirStatus('online'));
 
-    socket.on('oferta:atualizada', async (novaLista) => {
+    socket.on('offer:updated', async (payload) => {
+      const novaLista = (payload && payload.offers) || [];
       await cache.salvarOfertas(novaLista);
       render.definirOfertas(novaLista);
     });

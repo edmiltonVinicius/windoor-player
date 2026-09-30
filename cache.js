@@ -38,14 +38,14 @@ TotemPlayer.cache = (function () {
     return horas * 60 + minutos;
   }
 
-  // O backend já filtra por dayparting na resposta de /ofertas, mas o totem
+  // O backend já filtra por dayparting na resposta de /offers, mas o totem
   // pode ficar horas offline exibindo a lista salva em cache local — nesse
   // caso o filtro precisa ser refeito no cliente, comparando com o horário
-  // atual do dispositivo. Ofertas sem dayparting_inicio/dayparting_fim são
+  // atual do dispositivo. Ofertas sem daypartingStart/daypartingEnd são
   // sempre consideradas válidas (sem restrição de horário).
   function estaDentroDoHorario(oferta, agora) {
-    const inicio = oferta && oferta.dayparting_inicio;
-    const fim = oferta && oferta.dayparting_fim;
+    const inicio = oferta && oferta.daypartingStart;
+    const fim = oferta && oferta.daypartingEnd;
     if (!inicio || !fim) return true;
 
     const agoraMin = agora.getHours() * 60 + agora.getMinutes();

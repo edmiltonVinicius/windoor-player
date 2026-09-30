@@ -44,7 +44,7 @@ TotemPlayer.render = (function () {
     ocultarFallback();
 
     document.getElementById('oferta').innerHTML =
-      `<img src="${oferta.imagemUrl}" alt="${oferta.titulo}">`;
+      `<img src="${oferta.imageUrl}" alt="${oferta.title}">`;
 
     ofertaEmExibicao = oferta;
     exibicaoIniciadaEm = Date.now();

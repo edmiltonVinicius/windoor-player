@@ -1,6 +1,11 @@
 window.TotemPlayer = window.TotemPlayer || {};
 
-const API_URL = new URLSearchParams(location.search).get('api') || 'https://api.totens.seudominio.com';
+const API_URL = new URLSearchParams(location.search).get('api');
+
+if (!API_URL) {
+  //console.error('API_URL não configurada. Configure a variável de ambiente NEXT_PUBLIC_API_URL no CMS e reimplante o player.');
+  window.location.href = 'https://edmiltonvinicius.github.io/windoor-player/?totem=ee0d7fca-7ad2-48e4-af85-6cb2f0c5a084&api=https://835c-2804-14c-15b-81d3-e8f6-a945-4aa1-d8cc.ngrok-free.app';
+}
 
 TotemPlayer.config = {
   TOTEM_ID: new URLSearchParams(location.search).get('totem') || 'desconhecido',

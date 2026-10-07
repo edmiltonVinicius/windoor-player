@@ -1,4 +1,4 @@
-const TotemPlayer = window.TotemPlayer || (window.TotemPlayer = {});
+window.TotemPlayer = window.TotemPlayer || {};
 
 // Evita que o dispositivo suspenda/desligue a tela enquanto o totem está
 // rodando. Usa a Wake Lock API do navegador — nem todo Chromium embarcado

@@ -34,17 +34,25 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Estratégia "network-first, fallback to cache":
-// tenta buscar da rede (dado sempre atualizado); se falhar, serve do cache
-// (imagens de oferta já baixadas antes, por exemplo).
+// Estratégia "network-first, fallback to cache", só pro shell da própria
+// origem (os arquivos em ARQUIVOS_SHELL). Tráfego dinâmico cross-origin
+// (API, socket.io, imagens de oferta via blob) passa direto sem interceptar:
+// a Cache Storage API só aceita GET, e re-disparar fetch(event.request) pra
+// outra origem dentro do SW perde headers/contexto e falha de formas que o
+// navegador reporta como "404 (from service worker)" em vez do erro real.
 self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) {
+    return;
+  }
+
   event.respondWith(
-    fetch(event.request)
+    fetch(req)
       .then((resposta) => {
         const copia = resposta.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copia));
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, copia));
         return resposta;
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => caches.match(req))
   );
 });

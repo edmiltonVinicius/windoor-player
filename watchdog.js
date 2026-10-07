@@ -1,4 +1,4 @@
-const TotemPlayer = window.TotemPlayer || (window.TotemPlayer = {});
+window.TotemPlayer = window.TotemPlayer || {};
 
 // Watchdog de travamento em JS: se o loop de rotação de ofertas (render.js)
 // não "bater" por um tempo muito maior que o esperado, força um reload da

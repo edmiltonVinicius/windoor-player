@@ -1,4 +1,4 @@
-const TotemPlayer = window.TotemPlayer || (window.TotemPlayer = {});
+window.TotemPlayer = window.TotemPlayer || {};
 
 // Reporta ao backend quanto tempo cada oferta ficou de fato na tela.
 // Chamado pelo render.js toda vez que uma oferta sai de cena (seja pela
@@ -7,11 +7,11 @@ TotemPlayer.proofOfPlay = (function () {
   function reportar(oferta, duracaoMs) {
     if (!oferta || !oferta.id) return;
 
-    const { TOTEM_ID, API_URL } = TotemPlayer.config;
+    const { TOTEM_ID, API_URL, EXTRA_HEADERS } = TotemPlayer.config;
 
     fetch(`${API_URL}/totems/${TOTEM_ID}/proof-of-play`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...EXTRA_HEADERS },
       body: JSON.stringify({
         offerId: oferta.id,
         durationMs: Math.max(0, Math.round(duracaoMs)),

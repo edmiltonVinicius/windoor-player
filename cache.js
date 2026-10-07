@@ -1,4 +1,4 @@
-const TotemPlayer = window.TotemPlayer || (window.TotemPlayer = {});
+window.TotemPlayer = window.TotemPlayer || {};
 
 TotemPlayer.cache = (function () {
   const DB_NAME = 'totem-cache';
@@ -65,5 +65,55 @@ TotemPlayer.cache = (function () {
     return (lista || []).filter((oferta) => estaDentroDoHorario(oferta, referencia));
   }
 
-  return { salvarOfertas, lerOfertas, filtrarPorDayparting, estaDentroDoHorario };
+  const CACHE_IMAGENS = 'totem-imagens-v1';
+
+  // Cache-first: checa o Cache Storage pela URL exata; se não tiver, faz
+  // fetch (com EXTRA_HEADERS, por causa do túnel ngrok em dev) e guarda a
+  // Response clonada. Devolve um blob URL pronto pra usar em <img>.
+  async function obterImagemCacheada(url) {
+    const cache = await caches.open(CACHE_IMAGENS);
+    let resposta = await cache.match(url);
+    if (!resposta) {
+      resposta = await fetch(url, { headers: TotemPlayer.config.EXTRA_HEADERS });
+      if (!resposta.ok) throw new Error(`resposta não-ok ao buscar imagem: ${resposta.status}`);
+      cache.put(url, resposta.clone());
+    }
+    const blob = await resposta.blob();
+    return URL.createObjectURL(blob);
+  }
+
+  // Pré-carrega em paralelo as imagens de uma lista de ofertas, sem bloquear
+  // quem chamou (fire-and-forget). Falha de uma imagem não afeta as outras.
+  function preCarregarImagens(lista) {
+    (lista || []).forEach((oferta) => {
+      obterImagemCacheada(oferta.imageUrl).catch((erro) => {
+        if (TotemPlayer.logger) {
+          TotemPlayer.logger.erro('Falha ao pré-carregar imagem', { url: oferta.imageUrl, erro: erro.message });
+        }
+      });
+    });
+  }
+
+  // Remove do Cache Storage imagens que não pertencem a nenhuma oferta da
+  // lista atual — evita crescimento ilimitado em operação 24/7. Seguro
+  // porque cada upload gera um UUID novo de arquivo: uma imageUrl nunca
+  // muda de conteúdo, então "fora da lista atual" == "pode apagar".
+  async function limparImagensObsoletas(listaAtual) {
+    const cache = await caches.open(CACHE_IMAGENS);
+    const urlsValidas = new Set((listaAtual || []).map((o) => o.imageUrl));
+    const requests = await cache.keys();
+    await Promise.all(
+      requests.filter((req) => !urlsValidas.has(req.url)).map((req) => cache.delete(req))
+    );
+  }
+
+  return {
+    salvarOfertas,
+    lerOfertas,
+    filtrarPorDayparting,
+    estaDentroDoHorario,
+    obterImagemCacheada,
+    preCarregarImagens,
+    limparImagensObsoletas,
+  };
 })();

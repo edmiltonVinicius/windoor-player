@@ -1,4 +1,4 @@
-const TotemPlayer = window.TotemPlayer || (window.TotemPlayer = {});
+window.TotemPlayer = window.TotemPlayer || {};
 
 TotemPlayer.logger = (function () {
   function registrar(nivel, mensagem, contexto) {
@@ -16,7 +16,7 @@ TotemPlayer.logger = (function () {
     // Envia pro backend, mas nunca deixa uma falha de log travar o player.
     fetch(`${TotemPlayer.config.API_URL}/logs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...TotemPlayer.config.EXTRA_HEADERS },
       body: JSON.stringify(linha),
       keepalive: true,
     }).catch(() => {});

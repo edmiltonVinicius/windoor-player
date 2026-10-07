@@ -1,4 +1,4 @@
-const TotemPlayer = window.TotemPlayer || (window.TotemPlayer = {});
+window.TotemPlayer = window.TotemPlayer || {};
 
 TotemPlayer.heartbeat = (function () {
   const INTERVALO_MS = 30000;
@@ -13,13 +13,13 @@ TotemPlayer.heartbeat = (function () {
   }
 
   async function enviar() {
-    const { TOTEM_ID, API_URL, VERSAO_PLAYER } = TotemPlayer.config;
+    const { TOTEM_ID, API_URL, VERSAO_PLAYER, EXTRA_HEADERS } = TotemPlayer.config;
     const oferta = TotemPlayer.render.ofertaAtual();
 
     try {
       await fetch(`${API_URL}/totems/${TOTEM_ID}/heartbeat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...EXTRA_HEADERS },
         body: JSON.stringify({
           playerVersion: VERSAO_PLAYER,
           lastOfferId: oferta ? oferta.id : null,

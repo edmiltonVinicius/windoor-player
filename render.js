@@ -1,10 +1,17 @@
-const TotemPlayer = window.TotemPlayer || (window.TotemPlayer = {});
+window.TotemPlayer = window.TotemPlayer || {};
 
 TotemPlayer.render = (function () {
   const TEMPO_POR_OFERTA_MS = 8000;
+  const DURACAO_TRANSICAO_MS = 1000;
   let ofertas = [];
   let indiceAtual = 0;
   let intervalId = null;
+
+  // Dois <img> empilhados (ver index.html) que alternam de papel a cada
+  // troca de oferta, pra permitir cross-fade via CSS entre a imagem que
+  // sai e a que entra, em vez do replace brusco de innerHTML.
+  let imgAtivaEl = null;
+  let imgInativaEl = null;
 
   // Controle de proof-of-play: guarda qual oferta está no ar e desde quando,
   // para reportar a duração real de exibição assim que ela sair de cena.
@@ -39,12 +46,56 @@ TotemPlayer.render = (function () {
     exibicaoIniciadaEm = null;
   }
 
-  function mostrarOferta(oferta) {
-    finalizarExibicaoAtual();
+  function obterElementosImagem() {
+    if (!imgAtivaEl) {
+      imgAtivaEl = document.getElementById('img-a');
+      imgInativaEl = document.getElementById('img-b');
+    }
+  }
+
+  async function mostrarOferta(oferta) {
+    // Guard: lista com 1 item (ou chamada repetida) não deve re-renderizar/
+    // re-transicionar a mesma oferta que já está em exibição.
+    if (ofertaEmExibicao && ofertaEmExibicao.id === oferta.id) return;
+
+    obterElementosImagem();
     ocultarFallback();
 
-    document.getElementById('oferta').innerHTML =
-      `<img src="${oferta.imageUrl}" alt="${oferta.title}">`;
+    // Cache-first (ver cache.js): na maioria das trocas a imagem já foi
+    // pré-carregada por definirOfertas, então isto resolve quase na hora.
+    let blobUrl;
+    try {
+      blobUrl = await TotemPlayer.cache.obterImagemCacheada(oferta.imageUrl);
+    } catch (erro) {
+      if (TotemPlayer.logger) {
+        TotemPlayer.logger.erro('Falha ao carregar imagem da oferta', { url: oferta.imageUrl, erro: erro.message });
+      }
+      return; // mantém a imagem atual visível em vez de quebrar a tela
+    }
+
+    // Só troca ofertaEmExibicao/dispara proof-of-play DEPOIS que a imagem já
+    // está pronta — finalizarExibicaoAtual continua contabilizando a duração
+    // real da oferta anterior, sem gap nem falso-positivo de oferta quebrada.
+    finalizarExibicaoAtual();
+
+    const elEntrando = imgInativaEl;
+    const elSaindo = imgAtivaEl;
+
+    elEntrando.alt = oferta.title;
+    elEntrando.src = blobUrl;
+    elEntrando.classList.add('visivel');
+    elSaindo.classList.remove('visivel');
+
+    // Revoga a blob URL antiga só depois da transição CSS terminar, pra não
+    // cortar a imagem que está saindo no meio do fade (e evitar o vazamento
+    // de memória de blob URLs nunca revogadas).
+    const urlAntiga = elSaindo.src;
+    setTimeout(() => {
+      if (urlAntiga && urlAntiga.startsWith('blob:')) URL.revokeObjectURL(urlAntiga);
+    }, DURACAO_TRANSICAO_MS + 50);
+
+    imgAtivaEl = elEntrando;
+    imgInativaEl = elSaindo;
 
     ofertaEmExibicao = oferta;
     exibicaoIniciadaEm = Date.now();
@@ -99,5 +150,6 @@ TotemPlayer.render = (function () {
     ocultarFallback,
     ultimoTickEm,
     TEMPO_POR_OFERTA_MS,
+    DURACAO_TRANSICAO_MS,
   };
 })();

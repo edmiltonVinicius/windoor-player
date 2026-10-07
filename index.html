@@ -9,8 +9,19 @@
       width: 100vw; height: 100vh;
       overflow: hidden; background: #000;
     }
-    #oferta { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-    #oferta img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    #oferta { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+
+    /* Dois <img> empilhados via position:absolute, alternando opacity, pra
+       criar um cross-fade suave entre a oferta que sai e a que entra, em
+       vez do corte seco de antes (replace de innerHTML). */
+    .img-oferta {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: contain;
+      opacity: 0;
+      transition: opacity 1000ms ease-in-out;
+    }
+    .img-oferta.visivel { opacity: 1; }
     #status { position: fixed; bottom: 8px; right: 8px; color: #555; font-family: sans-serif; font-size: 12px; z-index: 20; }
 
     /* Tela de fallback "branded": só aparece quando não há ofertas nem da
@@ -42,7 +53,10 @@
   </style>
 </head>
 <body>
-  <div id="oferta"></div>
+  <div id="oferta">
+    <img id="img-a" class="img-oferta visivel" alt="">
+    <img id="img-b" class="img-oferta" alt="">
+  </div>
   <div id="fallback">
     <div class="logo-placeholder">ATC</div>
     <div class="titulo">Estamos atualizando as ofertas</div>

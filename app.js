@@ -3,10 +3,14 @@
 
   async function carregarEstadoInicial() {
     try {
-      const resp = await fetch(`${config.API_URL}/totems/${config.TOTEM_ID}/offers`);
+      const resp = await fetch(`${config.API_URL}/totems/${config.TOTEM_ID}/offers`, {
+        headers: config.EXTRA_HEADERS,
+      });
       if (!resp.ok) throw new Error('resposta não-ok da API');
       const ofertas = await resp.json();
       await cache.salvarOfertas(ofertas);
+      cache.limparImagensObsoletas(ofertas);
+      cache.preCarregarImagens(ofertas);
       render.definirStatus('online');
       render.definirOfertas(ofertas);
     } catch (erro) {
@@ -27,13 +31,18 @@
   }
 
   function conectarWebSocket() {
-    const socket = io(config.API_URL, { query: { totemId: config.TOTEM_ID } });
+    const socket = io(config.API_URL, {
+      query: { totemId: config.TOTEM_ID },
+      extraHeaders: config.EXTRA_HEADERS,
+    });
 
     socket.on('connect', () => render.definirStatus('online'));
 
     socket.on('offer:updated', async (payload) => {
       const novaLista = (payload && payload.offers) || [];
       await cache.salvarOfertas(novaLista);
+      cache.limparImagensObsoletas(novaLista);
+      cache.preCarregarImagens(novaLista);
       render.definirOfertas(novaLista);
     });
 

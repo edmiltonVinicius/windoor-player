@@ -1,155 +1,300 @@
-window.TotemPlayer = window.TotemPlayer || {};
+window.WindoorPlayer = window.WindoorPlayer || {};
 
-TotemPlayer.render = (function () {
-  const TEMPO_POR_OFERTA_MS = 8000;
-  const DURACAO_TRANSICAO_MS = 1000;
-  let ofertas = [];
-  let indiceAtual = 0;
-  let intervalId = null;
+/**
+ * Desenha o layout do player: uma zona (fullscreen) ou duas empilhadas
+ * (split_top_bottom), cada uma percorrendo a sua própria playlist com os tempos
+ * dos próprios itens, mais a barra de informações da unidade.
+ */
+WindoorPlayer.render = (function () {
+  const VIEWS = ['content', 'fallback', 'pairing', 'setup-error', 'inactive'];
 
-  // Dois <img> empilhados (ver index.html) que alternam de papel a cada
-  // troca de oferta, pra permitir cross-fade via CSS entre a imagem que
-  // sai e a que entra, em vez do replace brusco de innerHTML.
-  let imgAtivaEl = null;
-  let imgInativaEl = null;
+  let feed = null;
+  /** Estado por zona: elemento, índice, timer e o que está no ar (proof of play). */
+  const zoneStates = new Map();
+  let infoBarTimer = null;
+  let infoBarIndex = 0;
+  let lastTickMs = Date.now();
 
-  // Controle de proof-of-play: guarda qual oferta está no ar e desde quando,
-  // para reportar a duração real de exibição assim que ela sair de cena.
-  let ofertaEmExibicao = null;
-  let exibicaoIniciadaEm = null;
-
-  // Controle do watchdog (ver watchdog.js): timestamp do último "tick" do
-  // loop de rotação, mesmo quando a oferta visível não muda (ex: lista com
-  // 1 item só). Serve para o watchdog distinguir "JS travado" de "só tem
-  // uma oferta pra mostrar".
-  let ultimoTickMs = Date.now();
-
-  function definirOfertas(lista) {
-    ofertas = lista || [];
-    indiceAtual = 0;
-    ultimoTickMs = Date.now();
-
-    if (ofertas.length > 0) {
-      mostrarOferta(ofertas[0]);
-    } else {
-      finalizarExibicaoAtual();
-      mostrarFallback();
-    }
+  function showView(name) {
+    VIEWS.forEach((view) => {
+      const el = document.getElementById(view);
+      if (el) el.style.display = view === name ? 'flex' : 'none';
+    });
   }
 
-  function finalizarExibicaoAtual() {
-    if (ofertaEmExibicao && exibicaoIniciadaEm && TotemPlayer.proofOfPlay) {
-      const duracaoMs = Date.now() - exibicaoIniciadaEm;
-      TotemPlayer.proofOfPlay.reportar(ofertaEmExibicao, duracaoMs);
-    }
-    ofertaEmExibicao = null;
-    exibicaoIniciadaEm = null;
+  function zonesContainer() {
+    return document.getElementById('zones');
   }
 
-  function obterElementosImagem() {
-    if (!imgAtivaEl) {
-      imgAtivaEl = document.getElementById('img-a');
-      imgInativaEl = document.getElementById('img-b');
+  // ---------- proof of play ----------
+
+  function endDisplay(state) {
+    if (state.displayed && state.startedAt && WindoorPlayer.proofOfPlay) {
+      WindoorPlayer.proofOfPlay.report(state.displayed, Date.now() - state.startedAt);
     }
+    state.displayed = null;
+    state.startedAt = null;
   }
 
-  async function mostrarOferta(oferta) {
-    // Guard: lista com 1 item (ou chamada repetida) não deve re-renderizar/
-    // re-transicionar a mesma oferta que já está em exibição.
-    if (ofertaEmExibicao && ofertaEmExibicao.id === oferta.id) return;
+  // ---------- DOM das zonas ----------
 
-    obterElementosImagem();
-    ocultarFallback();
+  /** Recria os elementos das zonas quando o layout muda (e só nesse caso). */
+  function buildZones(layout, zones) {
+    const container = zonesContainer();
+    if (!container) return;
 
-    // Cache-first (ver cache.js): na maioria das trocas a imagem já foi
-    // pré-carregada por definirOfertas, então isto resolve quase na hora.
-    let blobUrl;
-    try {
-      blobUrl = await TotemPlayer.cache.obterImagemCacheada(oferta.imageUrl);
-    } catch (erro) {
-      if (TotemPlayer.logger) {
-        TotemPlayer.logger.erro('Falha ao carregar imagem da oferta', { url: oferta.imageUrl, erro: erro.message });
+    container.dataset.layout = layout;
+    container.textContent = '';
+    zoneStates.forEach((state) => {
+      if (state.timer) clearTimeout(state.timer);
+      endDisplay(state);
+    });
+    zoneStates.clear();
+
+    zones.forEach((zone) => {
+      const el = document.createElement('div');
+      el.className = 'zone';
+      el.dataset.position = zone.position;
+
+      const empty = document.createElement('div');
+      empty.className = 'zone-empty';
+      empty.textContent = 'Sem playlist nesta zona';
+      el.appendChild(empty);
+
+      container.appendChild(el);
+      zoneStates.set(zone.position, {
+        el,
+        emptyEl: empty,
+        index: 0,
+        timer: null,
+        displayed: null,
+        startedAt: null,
+        currentMediaEl: null,
+      });
+    });
+  }
+
+  /**
+   * Nada mudou nesta zona? Compara a playlist e a sequência. A playlist importa
+   * mesmo quando as duas listas estão vazias: trocar uma zona sem playlist por
+   * uma playlist sem conteúdo exibível muda a mensagem mostrada na tela.
+   */
+  function sameSequence(position, zone) {
+    const previous = feed && feed.zones.find((z) => z.position === position);
+    if (!previous) return false;
+
+    const previousPlaylistId = previous.playlist ? previous.playlist.id : null;
+    const nextPlaylistId = zone.playlist ? zone.playlist.id : null;
+    if (previousPlaylistId !== nextPlaylistId) return false;
+
+    const items = zone.items;
+    if (previous.items.length !== items.length) return false;
+    return items.every((item, index) => previous.items[index] && previous.items[index].id === item.id);
+  }
+
+  // ---------- exibição de um item ----------
+
+  function createMediaElement(item) {
+    if (item.type === 'video') {
+      const video = document.createElement('video');
+      video.src = item.url;
+      video.muted = true;            // autoplay só é permitido sem som
+      video.autoplay = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      return video;
+    }
+    const img = document.createElement('img');
+    img.alt = '';
+    return img;
+  }
+
+  /**
+   * Coloca o item no ar com cross-fade. Imagem vem do cache (blob URL);
+   * vídeo toca direto da rede, para não encher o Cache Storage.
+   */
+  async function showItem(position, item) {
+    const state = zoneStates.get(position);
+    if (!state || !item) return;
+
+    let src = item.url;
+    if (item.type === 'image') {
+      try {
+        src = await WindoorPlayer.cache.getCachedImage(item.url);
+      } catch (error) {
+        if (WindoorPlayer.logger) {
+          WindoorPlayer.logger.error('Falha ao carregar imagem do conteúdo', {
+            url: item.url, zone: position, error: error.message,
+          });
+        }
+        return; // mantém o que está no ar em vez de piscar uma zona vazia
       }
-      return; // mantém a imagem atual visível em vez de quebrar a tela
     }
 
-    // Só troca ofertaEmExibicao/dispara proof-of-play DEPOIS que a imagem já
-    // está pronta — finalizarExibicaoAtual continua contabilizando a duração
-    // real da oferta anterior, sem gap nem falso-positivo de oferta quebrada.
-    finalizarExibicaoAtual();
+    const entering = createMediaElement(item);
+    if (item.type === 'image') entering.src = src;
+    entering.className = 'zone-media';
+    state.el.appendChild(entering);
 
-    const elEntrando = imgInativaEl;
-    const elSaindo = imgAtivaEl;
+    // Força um frame antes de animar, senão a transição não acontece.
+    requestAnimationFrame(() => entering.classList.add('visible'));
 
-    elEntrando.alt = oferta.title;
-    elEntrando.src = blobUrl;
-    elEntrando.classList.add('visivel');
-    elSaindo.classList.remove('visivel');
+    const leaving = state.currentMediaEl;
+    if (leaving) {
+      leaving.classList.remove('visible');
+      const oldSrc = leaving.src;
+      setTimeout(() => {
+        leaving.remove();
+        if (oldSrc && oldSrc.startsWith('blob:')) URL.revokeObjectURL(oldSrc);
+      }, WindoorPlayer.config.TRANSITION_MS + 50);
+    }
 
-    // Revoga a blob URL antiga só depois da transição CSS terminar, pra não
-    // cortar a imagem que está saindo no meio do fade (e evitar o vazamento
-    // de memória de blob URLs nunca revogadas).
-    const urlAntiga = elSaindo.src;
-    setTimeout(() => {
-      if (urlAntiga && urlAntiga.startsWith('blob:')) URL.revokeObjectURL(urlAntiga);
-    }, DURACAO_TRANSICAO_MS + 50);
+    state.currentMediaEl = entering;
+    state.emptyEl.style.display = 'none';
 
-    imgAtivaEl = elEntrando;
-    imgInativaEl = elSaindo;
-
-    ofertaEmExibicao = oferta;
-    exibicaoIniciadaEm = Date.now();
+    // A duração do anterior só é contabilizada depois que o novo está pronto.
+    endDisplay(state);
+    state.displayed = item;
+    state.startedAt = Date.now();
   }
 
-  // Tela de fallback "branded": usada quando não há ofertas nem da API nem
-  // do cache local (ex: primeira execução do totem sem internet).
-  function mostrarFallback() {
-    const oferta = document.getElementById('oferta');
-    const fallback = document.getElementById('fallback');
-    if (oferta) oferta.style.display = 'none';
-    if (fallback) fallback.style.display = 'flex';
+  // ---------- loop por zona ----------
+
+  function scheduleNext(position) {
+    const state = zoneStates.get(position);
+    const zone = feed && feed.zones.find((z) => z.position === position);
+    if (!state || !zone || zone.items.length === 0) return;
+
+    const item = zone.items[state.index];
+    const durationMs = Math.max(1, item.durationSeconds) * 1000;
+
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => {
+      lastTickMs = Date.now();
+      // Uma zona com um item só continua "tiquetaqueando" para o watchdog,
+      // mesmo sem troca visível.
+      if (zone.items.length > 1) {
+        state.index = (state.index + 1) % zone.items.length;
+        void showItem(position, zone.items[state.index]);
+      }
+      scheduleNext(position);
+    }, durationMs);
   }
 
-  function ocultarFallback() {
-    const fallback = document.getElementById('fallback');
-    const oferta = document.getElementById('oferta');
-    if (fallback) fallback.style.display = 'none';
-    if (oferta) oferta.style.display = 'flex';
+  function startZone(position) {
+    const state = zoneStates.get(position);
+    const zone = feed && feed.zones.find((z) => z.position === position);
+    if (!state || !zone) return;
+
+    if (zone.items.length === 0) {
+      if (state.timer) clearTimeout(state.timer);
+      endDisplay(state);
+      if (state.currentMediaEl) { state.currentMediaEl.remove(); state.currentMediaEl = null; }
+      state.emptyEl.style.display = 'flex';
+      state.emptyEl.textContent = zone.playlist ? 'Playlist sem conteúdo disponível' : 'Sem playlist nesta zona';
+      return;
+    }
+
+    state.index = 0;
+    void showItem(position, zone.items[0]);
+    scheduleNext(position);
   }
 
-  function definirStatus(texto) {
+  // ---------- barra de informações ----------
+
+  function renderInfoBar(infoBar) {
+    const bar = document.getElementById('info-bar');
+    const messageEl = document.getElementById('info-bar-message');
+    if (!bar || !messageEl) return;
+
+    if (infoBarTimer) { clearInterval(infoBarTimer); infoBarTimer = null; }
+
+    if (!infoBar.enabled) {
+      bar.style.display = 'none';
+      return;
+    }
+    bar.style.display = 'flex';
+
+    const messages = infoBar.messages;
+    infoBarIndex = 0;
+    messageEl.textContent = messages[0] || '';
+
+    if (messages.length > 1) {
+      infoBarTimer = setInterval(() => {
+        infoBarIndex = (infoBarIndex + 1) % messages.length;
+        messageEl.textContent = messages[infoBarIndex];
+      }, infoBar.rotationSeconds * 1000);
+    }
+  }
+
+  function startClock() {
+    const el = document.getElementById('info-bar-clock');
+    if (!el) return;
+    const update = () => {
+      el.textContent = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    };
+    update();
+    setInterval(update, 15000);
+  }
+
+  // ---------- entrada pública ----------
+
+  /** Recebe o feed já normalizado (WindoorPlayer.feed.normalizeFeed). */
+  function setFeed(next) {
+    if (!next) return;
+    lastTickMs = Date.now();
+
+    const layoutChanged = !feed || feed.layout !== next.layout;
+    const unchangedZones = !layoutChanged && next.zones.every((zone) => sameSequence(zone.position, zone));
+
+    if (WindoorPlayer.feed.totalItems(next) === 0) {
+      feed = next;
+      if (layoutChanged) buildZones(next.layout, next.zones);
+      next.zones.forEach((zone) => startZone(zone.position));
+      renderInfoBar(next.infoBar);
+      showFallback();
+      return;
+    }
+
+    hideFallback();
+    renderInfoBar(next.infoBar);
+
+    if (unchangedZones) { feed = next; return; }   // nada mudou: não reinicia as sequências
+    if (layoutChanged) buildZones(next.layout, next.zones);
+
+    feed = next;
+    next.zones.forEach((zone) => startZone(zone.position));
+  }
+
+  function showFallback() { showView('fallback'); }
+  function hideFallback() { showView('content'); }
+
+  function setStatus(text) {
     const el = document.getElementById('status');
-    if (el) el.textContent = texto;
+    if (el) el.textContent = text;
   }
 
-  function iniciarLoop() {
-    if (intervalId) clearInterval(intervalId);
-    ultimoTickMs = Date.now();
-    intervalId = setInterval(() => {
-      ultimoTickMs = Date.now();
-      if (ofertas.length === 0) return;
-      indiceAtual = (indiceAtual + 1) % ofertas.length;
-      mostrarOferta(ofertas[indiceAtual]);
-    }, TEMPO_POR_OFERTA_MS);
+  /** Conteúdo no ar na primeira zona com item — é o que o heartbeat reporta. */
+  function currentContent() {
+    for (const state of zoneStates.values()) {
+      if (state.displayed) return state.displayed;
+    }
+    return null;
   }
 
-  function ofertaAtual() {
-    return ofertas[indiceAtual] || null;
-  }
+  function lastTickAt() { return lastTickMs; }
 
-  function ultimoTickEm() {
-    return ultimoTickMs;
-  }
+  /** Compatibilidade com o watchdog, que só precisa saber que o loop está vivo. */
+  function startLoop() { startClock(); }
 
   return {
-    definirOfertas,
-    definirStatus,
-    iniciarLoop,
-    ofertaAtual,
-    mostrarFallback,
-    ocultarFallback,
-    ultimoTickEm,
-    TEMPO_POR_OFERTA_MS,
-    DURACAO_TRANSICAO_MS,
+    setFeed,
+    setStatus,
+    startLoop,
+    currentContent,
+    showFallback,
+    hideFallback,
+    showView,
+    lastTickAt,
   };
 })();

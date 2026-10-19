@@ -1,44 +1,42 @@
-window.TotemPlayer = window.TotemPlayer || {};
+window.WindoorPlayer = window.WindoorPlayer || {};
 
-TotemPlayer.heartbeat = (function () {
-  const INTERVALO_MS = 30000;
+WindoorPlayer.heartbeat = (function () {
+  let timerId = null;
 
-  function usoMemoriaMb() {
-    // performance.memory só existe em navegadores baseados em Chromium — é o caso
-    // esperado no totem (Chrome/Chromium/Edge em modo kiosk).
-    if (performance.memory) {
+  function memoryUsageMb() {
+    // performance.memory só existe em navegadores baseados em Chromium — é o
+    // caso esperado no player (Chrome/Chromium em modo kiosk).
+    if (typeof performance !== 'undefined' && performance.memory) {
       return Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
     }
     return null;
   }
 
-  async function enviar() {
-    const { TOTEM_ID, API_URL, VERSAO_PLAYER, EXTRA_HEADERS } = TotemPlayer.config;
-    const oferta = TotemPlayer.render.ofertaAtual();
+  async function send() {
+    const { config, api, render, logger } = WindoorPlayer;
+    if (!config.getToken()) return;                 // só depois de pareado
+    const content = render && render.currentContent ? render.currentContent() : null;
 
     try {
-      await fetch(`${API_URL}/totems/${TOTEM_ID}/heartbeat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...EXTRA_HEADERS },
-        body: JSON.stringify({
-          playerVersion: VERSAO_PLAYER,
-          lastOfferId: oferta ? oferta.id : null,
-          memoryUsageMb: usoMemoriaMb(),
-        }),
+      await api.post('/player/heartbeat', {
+        playerVersion: config.PLAYER_VERSION,
+        // O item traz o id do conteúdo em `contentId`; `id` é o id do item na playlist.
+        lastContentId: content ? content.contentId || content.id : null,
+        memoryUsageMb: memoryUsageMb(),
       });
-    } catch (erro) {
-      // Sem internet é esperado às vezes — não precisa virar erro ruidoso,
-      // só registra pra eventual auditoria quando a conexão voltar.
-      TotemPlayer.logger.info('Heartbeat não enviado (provavelmente offline)', {
-        erro: erro.message,
-      });
+    } catch (error) {
+      // Sem internet é esperado às vezes — não vira erro ruidoso.
+      logger.info('Heartbeat não enviado (provavelmente offline)', { error: error.message, code: error.code });
     }
   }
 
-  function iniciar() {
-    enviar();
-    setInterval(enviar, INTERVALO_MS);
+  function start() {
+    if (timerId) clearInterval(timerId);
+    send();
+    timerId = setInterval(send, WindoorPlayer.config.HEARTBEAT_INTERVAL_MS);
   }
 
-  return { iniciar };
+  function stop() { if (timerId) { clearInterval(timerId); timerId = null; } }
+
+  return { start, stop, send };
 })();

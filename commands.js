@@ -1,32 +1,55 @@
-window.TotemPlayer = window.TotemPlayer || {};
+window.WindoorPlayer = window.WindoorPlayer || {};
 
-TotemPlayer.commands = (function () {
-  function executar(comando) {
-    TotemPlayer.logger.info('Comando remoto recebido', comando);
+WindoorPlayer.commands = (function () {
+  function isSafeUrl(url) {
+    try { const parsed = new URL(url); return parsed.protocol === 'http:' || parsed.protocol === 'https:'; }
+    catch (_) { return false; }
+  }
 
-    switch (comando.type) {
+  function execute(cmd, socket) {
+    const { logger } = WindoorPlayer;
+    const ack = (status) => { try { socket.emit('command:ack', { id: cmd && cmd.id, status }); } catch (_) {} };
+    if (!cmd || !cmd.type) { ack('failed'); return; }
+
+    logger.info('Comando remoto recebido', { id: cmd.id, type: cmd.type });
+
+    switch (cmd.type) {
       case 'reload':
-        location.reload();
+        ack('acknowledged');
+        setTimeout(() => location.reload(), 200);
         break;
 
-      case 'change_url':
-        if (comando.payload && comando.payload.url) {
-          location.href = comando.payload.url;
+      case 'change_url': {
+        const url = cmd.payload && cmd.payload.url;
+        if (!isSafeUrl(url)) {   // rejeita javascript:, data:, etc.
+          logger.warn('Comando change_url com URL inválida', { id: cmd.id });
+          ack('failed');
+          return;
         }
+        ack('acknowledged');
+        setTimeout(() => { location.href = url; }, 200);
         break;
+      }
 
-      // 'restart' (reiniciar o dispositivo, não só a página) e 'update_version'
-      // (baixar nova versão do player) dependem do agente de kiosk de cada SO —
-      // aqui o player só confirma o recebimento do comando; quem executa de fato
-      // é a camada nativa (Fully Kiosk, systemd, etc.).
+      // 'restart' (reiniciar o dispositivo) e 'update_version' (baixar nova
+      // versão) não existem no navegador: quem executa é o agente de kiosk
+      // nativo (systemd, Fully Kiosk) exposto como window.WindoorKiosk.
+      case 'restart':
+      case 'update_version':
       default:
-        TotemPlayer.logger.info('Comando repassado ao agente de kiosk', comando);
+        if (typeof window.WindoorKiosk !== 'undefined' && typeof window.WindoorKiosk[cmd.type] === 'function') {
+          try { window.WindoorKiosk[cmd.type](cmd.payload || {}); ack('acknowledged'); }
+          catch (error) { logger.error('Agente de kiosk falhou ao executar comando', { type: cmd.type, error: error.message }); ack('failed'); }
+        } else {
+          logger.info('Comando repassado ao agente de kiosk', { id: cmd.id, type: cmd.type });
+          ack('acknowledged');
+        }
     }
   }
 
-  function iniciar(socket) {
-    socket.on('command', executar);
+  function start(socket) {
+    socket.on('command', (cmd) => execute(cmd, socket));
   }
 
-  return { iniciar };
+  return { start, execute, isSafeUrl };
 })();

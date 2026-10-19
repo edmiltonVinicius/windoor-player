@@ -1,0 +1,10 @@
+{
+  "name": "windoor-player",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Player de sinalização digital Windoor (JS puro, sem build).",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "mock": "node test/mock-server.js"
+  }
+}

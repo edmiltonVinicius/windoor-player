@@ -1,8 +1,11 @@
-const CACHE_NAME = 'totem-shell-v2';
-const ARQUIVOS_SHELL = [
+const CACHE_NAME = 'windoor-shell-v1';
+const IMAGE_CACHE = 'windoor-images-v1';
+const SHELL_FILES = [
   './',
   './index.html',
   './config.js',
+  './schedule.js',
+  './api.js',
   './cache.js',
   './render.js',
   './logger.js',
@@ -11,47 +14,47 @@ const ARQUIVOS_SHELL = [
   './proof-of-play.js',
   './wakelock.js',
   './watchdog.js',
+  './pairing.js',
   './app.js',
+  './vendor/socket.io.min.js',
+  './assets/logo.png',
 ];
 
-// Ao instalar, guarda o "esqueleto" da página (HTML/JS) em cache.
+// Ao instalar, guarda o "esqueleto" da página (HTML/JS/logo/socket.io).
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ARQUIVOS_SHELL))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES))
   );
 });
 
-// Remove versões antigas de cache quando um novo Service Worker assume.
+// Remove qualquer cache que não seja o shell atual nem o de imagens — isso
+// também elimina os caches legados totem-*.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((nomes) =>
+    caches.keys().then((names) =>
       Promise.all(
-        nomes
-          .filter((nome) => nome !== CACHE_NAME)
-          .map((nome) => caches.delete(nome))
+        names
+          .filter((name) => name !== CACHE_NAME && name !== IMAGE_CACHE)
+          .map((name) => caches.delete(name))
       )
     )
   );
 });
 
-// Estratégia "network-first, fallback to cache", só pro shell da própria
-// origem (os arquivos em ARQUIVOS_SHELL). Tráfego dinâmico cross-origin
-// (API, socket.io, imagens de oferta via blob) passa direto sem interceptar:
-// a Cache Storage API só aceita GET, e re-disparar fetch(event.request) pra
-// outra origem dentro do SW perde headers/contexto e falha de formas que o
-// navegador reporta como "404 (from service worker)" em vez do erro real.
+// "network-first, fallback to cache", só pro GET da própria origem. Tráfego
+// cross-origin (API, socket.io, imagens) passa direto sem interceptar: a
+// Cache Storage só aceita GET, e re-disparar o fetch cross-origin dentro do
+// SW perde headers/contexto e falha de formas enganosas.
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) {
-    return;
-  }
+  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
 
   event.respondWith(
     fetch(req)
-      .then((resposta) => {
-        const copia = resposta.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, copia));
-        return resposta;
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+        return response;
       })
       .catch(() => caches.match(req))
   );

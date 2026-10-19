@@ -2,73 +2,186 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Totem - Atacadão</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Preenchido no deploy; alternativa ao ?api= na primeira abertura. -->
+  <meta name="windoor-api-url" content="">
+  <title>Windoor Player</title>
   <style>
-    html, body {
-      margin: 0; padding: 0;
-      width: 100vw; height: 100vh;
-      overflow: hidden; background: #000;
+    :root {
+      --bg: #0A0712;
+      --card: #171424;
+      --border: #2B2740;
+      --text: #EEEDF5;
+      --text-2: #B4B0C8;
+      --text-3: #928DAB;
+      --primary: #5AA3DC;
+      --error: #F0707A;
+      --success: #4CC38A;
+      --brand: linear-gradient(90deg,#3485C4,#5A3A8F 35%,#C8302F 70%,#E75911);
+      --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }
-    #oferta { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; }
 
-    /* Dois <img> empilhados via position:absolute, alternando opacity, pra
-       criar um cross-fade suave entre a oferta que sai e a que entra, em
-       vez do corte seco de antes (replace de innerHTML). */
-    .img-oferta {
+    /* ---- conteúdo: zonas + barra ---- */
+    #content { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; }
+
+    /* O layout define a divisão: uma zona cheia ou duas empilhadas. */
+    #zones { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    #zones[data-layout="split_top_bottom"] .zone { flex: 1 1 50%; }
+    #zones[data-layout="fullscreen"] .zone { flex: 1 1 100%; }
+    .zone { position: relative; min-height: 0; overflow: hidden; background: #000; }
+    #zones[data-layout="split_top_bottom"] .zone[data-position="bottom"] { border-top: 1px solid #000; }
+
+    /* Mídias empilhadas alternando opacity = cross-fade suave. */
+    .zone-media {
       position: absolute; top: 0; left: 0;
       width: 100%; height: 100%;
       object-fit: contain;
       opacity: 0;
       transition: opacity 1000ms ease-in-out;
     }
-    .img-oferta.visivel { opacity: 1; }
-    #status { position: fixed; bottom: 8px; right: 8px; color: #555; font-family: sans-serif; font-size: 12px; z-index: 20; }
+    .zone-media.visible { opacity: 1; }
+    .zone-empty {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: #4A4660; font-family: var(--font); font-size: 2.2vh;
+      background: var(--bg);
+    }
 
-    /* Tela de fallback "branded": só aparece quando não há ofertas nem da
-       API nem do cache local (ex: primeira execução do totem sem internet).
-       Sem assets de marca disponíveis ainda, usa um placeholder simples com
-       as cores do Atacadão (azul + vermelho) em vez de tela branca/preta. */
-    #fallback {
+    /* ---- barra de informações (configurada por unidade) ---- */
+    #info-bar {
+      display: none;
+      height: 7vh; min-height: 44px;
+      align-items: center; justify-content: space-between; gap: 2vw;
+      padding: 0 2vw;
+      background: var(--bg); border-top: 1px solid var(--border);
+      color: var(--text); font-family: var(--font);
+    }
+    #info-bar-clock { font-size: 3vh; font-weight: 700; font-variant-numeric: tabular-nums; }
+    #info-bar-message {
+      flex: 1; min-width: 0;
+      text-align: center; font-size: 2.6vh; color: var(--text-2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #info-bar .logo-bar { display: flex; align-items: center; gap: 8px; }
+    #info-bar .logo-bar img { height: 4vh; width: auto; border-radius: 6px; }
+
+    #status { position: fixed; bottom: 8px; right: 8px; color: #555; font-family: var(--font); font-size: 12px; z-index: 20; }
+
+    /* ---- telas de sistema ---- */
+    .system-screen {
       display: none;
       width: 100%; height: 100%;
       flex-direction: column;
       align-items: center; justify-content: center;
-      background: linear-gradient(160deg, #003DA5 0%, #001B45 100%);
-      color: #fff;
-      font-family: sans-serif;
+      background: var(--bg); color: var(--text);
+      font-family: var(--font);
       text-align: center;
       box-sizing: border-box;
-      padding: 24px;
+      padding: 4vh 4vw;
     }
-    #fallback .logo-placeholder {
-      width: 120px; height: 120px;
-      border-radius: 50%;
-      background: #E30613;
-      display: flex; align-items: center; justify-content: center;
-      font-weight: 900; font-size: 22px; letter-spacing: 1px;
-      margin-bottom: 24px;
+    .brand-bar { width: 120px; height: 5px; background: var(--brand); border-radius: 3px; margin: 16px 0 20px; }
+    .system-screen .logo { border-radius: 12px; }
+    .system-screen h1 { font-size: 32px; font-weight: 700; margin: 0 0 8px; }
+    .system-screen p { font-size: 18px; color: var(--text-2); max-width: 560px; line-height: 1.45; margin: 0; }
+
+    /* ---- pareamento ---- */
+    #pairing h1 { font-size: 40px; }
+    #pairing .subtitle { font-size: 20px; color: var(--text-2); margin: 0 0 24px; }
+    #pairing-code {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 28px; font-size: 64px; font-weight: 700; letter-spacing: .14em;
+      line-height: 1.1;
     }
-    #fallback .titulo { font-size: 28px; font-weight: bold; margin-bottom: 8px; }
-    #fallback .subtitulo { font-size: 16px; opacity: 0.85; max-width: 480px; line-height: 1.4; }
+    #pairing-code .placeholder { color: var(--text-3); }
+    .pairing-message { font-size: 20px; height: 28px; line-height: 28px; margin: 16px 0; color: var(--text-2); }
+    .pairing-message.error { color: var(--error); }
+    .pairing-message.success { color: var(--success); }
+    #pairing-keypad { display: grid; grid-template-columns: repeat(3, 88px); gap: 12px; justify-content: center; }
+    #pairing-keypad .key {
+      width: 88px; height: 72px; border-radius: 12px;
+      background: var(--card); border: 1px solid var(--border);
+      color: var(--text); font-size: 28px; font-family: var(--font); cursor: pointer;
+    }
+    #pairing-keypad .key[data-action] { font-size: 18px; }
+    #pairing-keypad .key.primary { background: var(--primary); color: var(--bg); border-color: var(--primary); font-weight: 700; }
+    #pairing-keypad .key:disabled { opacity: .45; cursor: default; }
+    #pairing .footer { margin-top: 24px; font-size: 14px; color: var(--text-3); }
   </style>
 </head>
 <body>
-  <div id="oferta">
-    <img id="img-a" class="img-oferta visivel" alt="">
-    <img id="img-b" class="img-oferta" alt="">
+  <!-- view: conteúdo — zonas do layout e barra de informações da unidade -->
+  <div id="content">
+    <!-- as zonas são criadas pelo render.js conforme o layout do player -->
+    <div id="zones" data-layout="fullscreen"></div>
+    <div id="info-bar">
+      <span id="info-bar-clock">--:--</span>
+      <span id="info-bar-message"></span>
+      <span class="logo-bar"><img src="assets/logo.png" alt="Windoor"></span>
+    </div>
   </div>
-  <div id="fallback">
-    <div class="logo-placeholder">ATC</div>
-    <div class="titulo">Estamos atualizando as ofertas</div>
-    <div class="subtitulo">Não foi possível carregar as ofertas no momento. O totem vai continuar tentando se reconectar automaticamente.</div>
+
+  <!-- view: sem conteúdo (nem API nem cache) -->
+  <div id="fallback" class="system-screen">
+    <img class="logo" src="assets/logo.png" width="96" height="96" alt="Windoor">
+    <div class="brand-bar"></div>
+    <h1>Estamos atualizando o conteúdo</h1>
+    <p>Não foi possível carregar o conteúdo no momento. O player vai continuar tentando se reconectar automaticamente.</p>
   </div>
+
+  <!-- view: sem API_URL configurada -->
+  <div id="setup-error" class="system-screen">
+    <img class="logo" src="assets/logo.png" width="96" height="96" alt="Windoor">
+    <div class="brand-bar"></div>
+    <h1>Player não configurado</h1>
+    <p>Defina o endereço da API. Abra este player com ?api=https://sua-api/v1 (isso é salvo no dispositivo).</p>
+  </div>
+
+  <!-- view: player desativado no painel -->
+  <div id="inactive" class="system-screen">
+    <img class="logo" src="assets/logo.png" width="96" height="96" alt="Windoor">
+    <div class="brand-bar"></div>
+    <h1>Player desativado</h1>
+    <p>Este player foi desativado no painel Windoor. Ele volta a funcionar sozinho quando for reativado.</p>
+  </div>
+
+  <!-- view: pareamento -->
+  <div id="pairing" class="system-screen">
+    <img class="logo" src="assets/logo.png" width="72" height="72" alt="Windoor">
+    <div class="brand-bar"></div>
+    <h1>Parear este player</h1>
+    <p class="subtitle">Digite o código mostrado no painel Windoor.</p>
+    <div id="pairing-code"></div>
+    <div id="pairing-message" class="pairing-message"></div>
+    <div id="pairing-keypad">
+      <button class="key" data-digit="1">1</button>
+      <button class="key" data-digit="2">2</button>
+      <button class="key" data-digit="3">3</button>
+      <button class="key" data-digit="4">4</button>
+      <button class="key" data-digit="5">5</button>
+      <button class="key" data-digit="6">6</button>
+      <button class="key" data-digit="7">7</button>
+      <button class="key" data-digit="8">8</button>
+      <button class="key" data-digit="9">9</button>
+      <button class="key" data-action="backspace">Apagar</button>
+      <button class="key" data-digit="0">0</button>
+      <button class="key primary" id="pairing-confirm" data-action="confirm" disabled>Parear</button>
+    </div>
+    <div class="footer">
+      Onde encontro o código? No painel Windoor, em Unidades → Ver código.
+      <div id="pairing-version"></div>
+    </div>
+  </div>
+
   <div id="status">conectando...</div>
 
-  <!-- Biblioteca do WebSocket -->
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <!-- socket.io servido localmente: o kiosk precisa subir sem CDN -->
+  <script src="vendor/socket.io.min.js"></script>
 
-  <!-- Módulos do player, nessa ordem: config primeiro, app.js por último -->
+  <!-- Módulos do player: config primeiro, app.js por último -->
   <script src="config.js"></script>
+  <script src="feed.js"></script>
+  <script src="api.js"></script>
   <script src="cache.js"></script>
   <script src="render.js"></script>
   <script src="logger.js"></script>
@@ -77,6 +190,7 @@
   <script src="proof-of-play.js"></script>
   <script src="wakelock.js"></script>
   <script src="watchdog.js"></script>
+  <script src="pairing.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

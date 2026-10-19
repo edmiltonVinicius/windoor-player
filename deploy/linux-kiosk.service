@@ -1,11 +1,13 @@
 [Unit]
-Description=Totem Kiosk Browser
+Description=Windoor Player Kiosk Browser
 After=graphical.target network-online.target
 Wants=network-online.target
 
 [Service]
 Environment=DISPLAY=:0
-ExecStart=/usr/bin/chromium --kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble --app=https://totem.seudominio.com/?totem=LOJA1234
+# O ?api= só é necessário na PRIMEIRA abertura (fica salvo no localStorage).
+# Alternativa: publicar o index.html com <meta name="windoor-api-url">.
+ExecStart=/usr/bin/chromium --kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble "https://player.windoor.com/?api=https://api.windoor.com/v1"
 Restart=always
 RestartSec=3
 

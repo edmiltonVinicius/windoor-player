@@ -1,157 +1,188 @@
-# totem-player
+# windoor-player
 
-Player web do totem do Atacadão. Roda em hardware modesto (Android TV Box,
-Raspberry Pi, mini-PC) via Chromium/navegador em modo `--kiosk`. É **vanilla
-JS puro, sem framework e sem build step** — de propósito, para não pesar em
-hardware fraco e para não depender de um pipeline de build no totem.
+Player de sinalização digital da Windoor: HTML + JavaScript puro, **sem framework
+e sem etapa de build**, para rodar 24/7 em hardware modesto (Android TV Box,
+Raspberry Pi, mini-PC) com Chromium em modo `--kiosk`.
 
-Este repositório é independente dos repos irmãos `totem-backend` (API) e
-`totem-cms` (painel administrativo), que são desenvolvidos em paralelo.
+Versão `2.0.0` (quebra de contrato em relação ao MVP single-tenant: identidade por
+pareamento, rotas `/player/*`, envelope de resposta, nomes em inglês, marca Windoor).
+
+## Como rodar
+
+Requisitos: Node.js 18+ (testado no 22) e um navegador baseado em Chromium.
+Não há dependências para instalar (`package.json` não tem `dependencies`) nem
+etapa de build — `npm install` é dispensável.
+
+### 1. Suba o mock da API (terminal 1)
+
+```bash
+cd totem-player
+npm run mock      # node test/mock-server.js → http://localhost:4000/v1
+```
+
+O mock implementa as rotas `/v1/player/*` com o envelope da spec (sem socket.io).
+Ele imprime no console cada `pair`, `heartbeat`, `proof-of-play` e `logs` recebido.
+Para usar outra porta: `PORT=5000 npm run mock`.
+
+Para apontar para o backend real em vez do mock, pule este passo e troque a URL
+do `?api=` no passo 3 (ex.: `?api=http://localhost:3000/v1`); a origem do player
+precisa estar liberada em `PLAYER_ORIGINS` no backend.
+
+### 2. Sirva os arquivos estáticos (terminal 2)
+
+`file://` **não** funciona: service worker, IndexedDB e Cache Storage exigem
+`http://`. Qualquer servidor estático serve:
+
+```bash
+cd totem-player
+npx serve . -l 3000          # ou
+python3 -m http.server 3000
+```
+
+### 3. Abra e pareie
+
+```
+http://localhost:3000/?api=http://localhost:4000/v1
+```
+
+Na tela de pareamento, digite **123456** (teclado físico, numérico na tela ou
+controle remoto). O mock aceita:
+
+| Código | Resultado |
+| --- | --- |
+| `123456` | pareia e devolve `deviceToken` |
+| `000000` | `410 PAIRING_CODE_EXPIRED` → "Código expirado" |
+| qualquer outro | `404 PAIRING_CODE_INVALID` → "Código inválido" |
+
+O `?api=` só é necessário na **primeira** abertura: ele fica persistido em
+`localStorage` (`windoor.apiUrl`), junto do token (`windoor.deviceToken`).
+
+### 4. Parâmetros úteis durante o desenvolvimento
+
+| URL | Efeito |
+| --- | --- |
+| `?api=<url>` | define e persiste a URL da API (inclui o `/v1`) |
+| `?unpair=1` | apaga token e identidade, volta ao pareamento |
+| `?layout=split` | o mock devolve o feed de duas zonas (`split_top_bottom`) |
+| `player-teste.html` | os 5 estados visuais sem API, para validar em hardware |
+
+Depois de mudar um arquivo `.js`, recarregue com **Ctrl+Shift+R**: o
+`service-worker.js` faz cache do shell e serve a versão antiga num reload comum.
+
+### 5. Testes
+
+```bash
+npm test          # node --test test/*.test.js
+```
+
+O glob `test/*.test.js` é obrigatório; `node --test test/` falha no Node 22
+porque tenta executar `mock-server.js` como suíte.
+
+### Modo kiosk (como roda em produção)
+
+```bash
+chromium --kiosk --noerrdialogs --disable-infobars \
+  --autoplay-policy=no-user-gesture-required \
+  "http://localhost:3000/?api=http://localhost:4000/v1"
+```
+
+Supervisão, boot e reinício ficam fora do player web — veja `deploy/README.md`.
+
+## Identidade do dispositivo
+
+O dispositivo nasce sem identidade. Na primeira abertura mostra a tela de
+pareamento; a pessoa digita o código de 6 dígitos gerado no painel
+(CMS → Unidade → "Ver código", válido 10 min, uso único) e o backend devolve um
+`deviceToken`, guardado em `localStorage` (`windoor.deviceToken`) e enviado como
+`Authorization: Bearer` em todas as chamadas. `401` → apaga o token e volta ao
+pareamento; `403 PLAYER_INACTIVE` → tela "Player desativado", com nova tentativa a
+cada 60 s. `?unpair=1` na URL apaga a identidade (uso por técnico).
 
 ## Arquitetura de módulos
 
-Cada arquivo é um módulo com uma única responsabilidade, que se registra em
-`window.TotemPlayer.<nome>` como uma IIFE. `index.html` carrega os scripts em
-ordem (via `<script>` tags simples, sem bundler) e `app.js` é sempre o
-último: ele orquestra os outros módulos, mas não tem lógica de domínio
-própria.
+Cada arquivo registra um objeto em `window.WindoorPlayer`; `app.js` é o
+orquestrador e entra por último.
 
-```
-config.js         → TotemPlayer.config     — lê TOTEM_ID da query string, URL da API, versão do player
-cache.js           → TotemPlayer.cache      — persiste/lê ofertas no IndexedDB; filtro de dayparting client-side
-render.js          → TotemPlayer.render     — desenha a oferta atual, loop de rotação, tela de fallback
-logger.js          → TotemPlayer.logger     — loga local (console) e remoto (POST /logs)
-heartbeat.js        → TotemPlayer.heartbeat  — POST /totems/:id/heartbeat a cada 30s
-commands.js         → TotemPlayer.commands   — reage a comandos remotos recebidos via WebSocket
-proof-of-play.js    → TotemPlayer.proofOfPlay — POST /totems/:id/proof-of-play ao trocar de oferta
-wakelock.js          → TotemPlayer.wakelock   — Wake Lock API, evita a tela apagar/suspender
-watchdog.js          → TotemPlayer.watchdog   — recarrega a página se o loop de exibição travar
-app.js               → orquestrador final: carrega estado inicial, conecta WebSocket, liga os outros módulos
-service-worker.js    → cache do "shell" da aplicação (os próprios arquivos .js/.html), estratégia network-first
-```
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `config.js` | resolve `API_URL`/`SOCKET_URL` (`?api=` → `localStorage` → `<meta>`), constantes e acesso ao token/identidade. Nunca redireciona |
+| `api.js` | único ponto de rede: `Authorization`, `EXTRA_HEADERS`, desembrulha o envelope, lança `ApiError`, dispara `windoor:unauthorized` / `windoor:inactive` |
+| `schedule.js` | período e dayparting (funções puras, UMD, testadas em Node) |
+| `pairing.js` | tela e fluxo de pareamento (visor, teclado físico e na tela, erros, trava de 60 s) |
+| `cache.js` | IndexedDB `windoor-player`/`contents` + Cache Storage `windoor-images-v1` (cache-first, pré-carregamento, poda) |
+| `render.js` | loop de exibição, cross-fade entre duas camadas `<img>`, `showView`, fallback, proof of play ao sair de cena |
+| `logger.js` | console sempre; remoto só com token, limitado a 20 logs/min, `context` truncado em 8 KB |
+| `heartbeat.js` | `POST /player/heartbeat` a cada 30 s |
+| `proof-of-play.js` | `POST /player/proof-of-play` com a duração real de exibição |
+| `commands.js` | `command` do socket + `command:ack`; `change_url` só aceita `http(s)` |
+| `wakelock.js` | Wake Lock API (falha em silêncio onde não existe) |
+| `watchdog.js` | recarrega a página se o loop travar; só é armado depois que o loop começou |
+| `service-worker.js` | shell offline (`windoor-shell-v1`), network-first só para GET da mesma origem |
+| `player-teste.html` | página standalone com os 5 estados visuais, para validar em hardware |
 
-`player-teste.html` é uma página standalone (sem backend, sem os módulos
-acima) só para validar visualmente em hardware físico como cada estado do
-player real se parece, antes do backend estar pronto — ver seção abaixo.
+`vendor/socket.io.min.js` (4.7.5) é servido localmente: o kiosk precisa subir sem
+acesso a CDN.
 
 ## Contrato de API consumido
 
-> O backend (`totem-backend`) traduziu todas as rotas, payloads e eventos
-> WebSocket de português para inglês (breaking change). O player foi
-> atualizado para o novo contrato; os nomes abaixo já refletem isso.
+`API_URL` inclui o prefixo de versão (ex.: `https://api.windoor.com/v1`); o socket
+conecta na **origem**. Todas as respostas (exceto `204`) vêm no envelope
+`{ success, data, errors, meta }`, e `api.js` devolve só `data`.
 
-- `GET /totems/:totemId/offers` — lista de ofertas já filtrada por
-  dayparting no servidor. Campos: `id`, `title`, `imageUrl`, `price`,
-  `category`, `periodStart`, `periodEnd`, `daypartingStart`,
-  `daypartingEnd`, `createdAt`, `updatedAt`.
-- `POST /totems/:totemId/heartbeat` — `{ playerVersion, lastOfferId, memoryUsageMb }`, a cada 30s.
-- `POST /totems/:totemId/proof-of-play` — `{ offerId, durationMs }`, disparado
-  toda vez que uma oferta sai de cena (troca automática do loop de 8s ou
-  nova lista chegando via WebSocket).
-- `POST /logs` — logs estruturados (`level`, `message`, `context`, `totemId`, `timestamp`).
-- WebSocket (`socket.io`), conectado com `io(API_URL, { query: { totemId } })`:
-  - evento recebido `offer:updated` — `{ totemId, offers }`, nova lista de ofertas.
-  - evento recebido `command` — `{ type, payload }`, tipos `reload`,
-    `restart`, `change_url`, `update_version`. `reload` e `change_url` são
-    executados pelo próprio player; `restart` e `update_version` são só
-    logados e repassados — quem executa de fato é o agente de kiosk nativo
-    do SO (ver seção "Fora do escopo" abaixo).
+| Método e rota | Auth | Corpo | `data` |
+| --- | --- | --- | --- |
+| `POST /player/pair` | — | `{ code }` | `{ playerId, deviceToken, playerName, unitName, clientName }` |
+| `GET /player/contents` | Bearer | — | `Content[]` (já filtrada no servidor) |
+| `POST /player/heartbeat` | Bearer | `{ playerVersion, lastContentId, memoryUsageMb }` | 204 |
+| `POST /player/proof-of-play` | Bearer | `{ contentId, durationMs }` | 204 |
+| `POST /player/logs` | Bearer | `{ level, message, context, timestamp }` | 204 |
 
-## Gaps fechados nesta rodada
+`Content`: `{ id, title, imageUrl, price, category, periodStart, periodEnd,
+daypartingStart, daypartingEnd, createdAt, updatedAt }`. Cada upload gera um UUID
+novo, então uma `imageUrl` nunca muda de conteúdo — por isso o cache por URL é seguro.
 
-O player já existia com o fluxo básico (buscar ofertas, cachear, exibir em
-loop, heartbeat, comandos remotos). Esta rodada fechou os gaps abaixo:
+Socket.io: `io(SOCKET_URL, { auth: { token } })`; recebe `content:updated`
+`{ playerId, contents }` e `command` `{ id, type, payload }`; emite `command:ack`
+`{ id, status }`. Sem socket o player continua funcionando só com HTTP (re-busca de
+segurança a cada 5 min e a cada reconexão).
 
-1. **Fallback visual de erro.** Antes, sem ofertas na API nem no cache
-   (IndexedDB vazio, primeira execução sem internet), o player renderizava
-   uma lista vazia — tela preta. Agora `render.js` expõe
-   `mostrarFallback()`/`ocultarFallback()`, chamadas automaticamente quando
-   `definirOfertas([])` é chamado com lista vazia. O `#fallback` em
-   `index.html` é um placeholder simples com a paleta do Atacadão (azul
-   `#003DA5` de fundo, círculo vermelho `#E30613` no lugar de um logo real —
-   não há assets de marca disponíveis ainda, então isso é só um placeholder
-   de identidade visual, fácil de trocar por um logo/imagem real depois) e
-   uma mensagem explicando que o totem vai continuar tentando se reconectar.
+## Comportamento offline
 
-2. **Wake Lock (`wakelock.js`).** Usa `navigator.wakeLock.request('screen')`
-   para impedir a tela de suspender. Se a API não existir no navegador
-   embarcado, falha em silêncio (só loga um `info`) — nesse caso a
-   supervisão de tela fica por conta da configuração do SO/agente de kiosk.
-   Como o wake lock é liberado automaticamente pelo navegador quando a aba
-   perde visibilidade, o módulo escuta `visibilitychange` e pede o lock de
-   novo assim que `document.visibilityState` volta a `'visible'`.
+1. Conteúdos salvos em IndexedDB e imagens no Cache Storage (cache-first).
+2. Sem API, exibe o cache refiltrado no cliente por período **e** dayparting
+   (`schedule.filterActive`) — o player pode ficar dias offline.
+3. Sem conteúdo nenhum, mostra a tela de fallback da marca.
+4. O status no canto inferior direito mostra `conectando...`, `online` ou
+   `offline (usando cache local)`.
 
-3. **Proof of play (`proof-of-play.js`).** `render.js` agora guarda qual
-   oferta está no ar e desde quando (`exibicaoIniciadaEm`). Toda vez que
-   `mostrarOferta()` é chamada de novo — seja pelo loop automático de 8s,
-   seja por uma nova lista chegando via `offer:updated` — a duração real
-   da oferta anterior é calculada e reportada via
-   `TotemPlayer.proofOfPlay.reportar(oferta, duracaoMs)`, que faz o `POST
-   /totems/:totemId/proof-of-play` com `keepalive: true` (pra não perder o
-   request se coincidir com um reload). Falha de rede aqui não é tratada
-   como erro — só um log informativo, mesmo padrão do heartbeat.
+Premissa: o relógio e o fuso do dispositivo estão corretos (o servidor filtra por
+`APP_TIMEZONE`, padrão `America/Sao_Paulo`).
 
-4. **Watchdog de travamento (`watchdog.js`).** `render.js` marca um
-   timestamp (`ultimoTickMs`) toda vez que o loop de rotação "bate" — mesmo
-   quando a oferta visível não muda (ex: lista com uma oferta só), para
-   distinguir "só tem uma oferta pra mostrar" de "o JS travou". O watchdog
-   verifica a cada 5s se faz mais de `3 × TEMPO_POR_OFERTA_MS` (24s) que o
-   loop não bate e, se sim, força `location.reload()`. Isso cobre o caso de
-   o processo do navegador continuar vivo mas o JS da página ter travado
-   (loop infinito, exceção não tratada em algum callback) — complementa,
-   não substitui, o watchdog do agente de kiosk nativo (que cobre o
-   navegador/processo/SO travando por completo, ver `deploy/README.md`).
+## Layout e zonas
 
-5. **Dayparting client-side (`cache.js`).** O filtro de horário
-   (`daypartingStart`/`daypartingEnd`, formato `HH:MM` ou `HH:MM:SS`) já é
-   responsabilidade do backend na resposta de `GET /offers`, mas como o
-   totem pode ficar horas offline exibindo a lista salva em cache local, a
-   lista cacheada pode conter ofertas cujo dayparting já não vale mais para
-   o horário atual do dispositivo. `cache.filtrarPorDayparting(lista, agora)`
-   refaz esse filtro no cliente, comparando a hora atual com a janela de
-   cada oferta (inclusive janelas que cruzam a meia-noite, ex:
-   `22:00:00`–`06:00:00`). Ofertas sem os dois campos são sempre
-   consideradas válidas. `app.js` só aplica esse filtro no caminho em que a
-   lista vem do cache (fallback de API indisponível) — a lista fresca da API
-   já vem filtrada pelo servidor.
-
-6. **`player-teste.html` atualizado.** Agora demonstra os três estados
-   visuais do player (carregando → oferta normal em rotação → fallback de
-   erro) em autoplay, e também expõe `window.TotemTeste` com
-   `mostrarCarregando()` / `mostrarOfertaDemo()` / `mostrarErro()` para
-   troca manual pelos botões no canto superior esquerdo da página — útil
-   para validar em hardware físico antes do backend estar disponível. É uma
-   página standalone, não usa os módulos de `TotemPlayer`.
+O player desenha o layout definido no painel: `fullscreen` (uma zona) ou `split_top_bottom`
+(duas empilhadas). Cada zona percorre a playlist atribuída a ela, com a duração de cada item,
+independentemente da outra. A barra inferior (relógio, mensagens em rodízio, logo) é configurada
+por unidade e vale para todos os players dela.
 
 ## Testes
 
-Não há framework de teste configurado (de propósito, para manter o projeto
-sem dependências de build). A lógica DOM-heavy (render, wakelock, watchdog)
-foi validada lendo o código com cuidado e via `node --check` em todos os
-`.js`. A única peça de lógica pura e fácil de isolar — o filtro de
-dayparting — tem testes leves com o test runner nativo do Node:
-
 ```bash
-node --test test/dayparting.test.js
+npm test          # equivale a node --test test/*.test.js
 ```
+
+- `test/schedule.test.js` — período, dayparting (inclusive cruzando a meia-noite),
+  bordas inclusivas, `HH:MM` e `HH:MM:SS`, `filterActive` com relógio injetado.
+- `test/pairing.test.js` — `normalizeCode`, `formatCode`, mapa de mensagens de erro.
+- `test/api.test.js` — envelope, `204`, `ApiError`, `401`/`403`, cabeçalho de token.
+- `test/mock-server.js` — servidor de desenvolvimento (REST, sem socket).
+- `docs/manual-test.md` — checklist manual (pareamento, erros, offline, comandos,
+  watchdog).
 
 ## O que fica fora do escopo do player web
 
-- **Screenshot remoto da tela.** A página web não tem acesso à tela cheia
-  do dispositivo (só ao próprio viewport/DOM) — quem expõe isso é o agente
-  de kiosk nativo (ex: painel remoto do Fully Kiosk Browser no Android, ou
-  uma ferramenta equivalente no Windows/Linux). Não há código relacionado a
-  isso neste repositório, de propósito.
-- **Reinício do dispositivo / atualização de versão do player** (comandos
-  `restart` e `update_version` recebidos via WebSocket) — o player só
-  loga e confirma o recebimento; quem executa de fato é a camada nativa
-  (systemd no Linux, Agendador de Tarefas no Windows, Fully Kiosk no
-  Android). Ver `deploy/README.md`.
-- **Watchdog de processo/SO** (reabrir o navegador se ele cair, ou reiniciar
-  o dispositivo se travar por completo) — coberto por `Restart=always` do
-  systemd (Linux), Agendador de Tarefas (Windows) ou "Auto reload on
-  connection error" do Fully Kiosk (Android). O `watchdog.js` deste
-  repositório só cobre o caso mais restrito de JS travado com o navegador
-  ainda de pé.
-- **Deploy/instalação em cada SO** — ver `deploy/README.md` e
-  `deploy/linux-kiosk.service`.
+Reiniciar o dispositivo, atualizar o sistema, supervisionar o processo do navegador
+e garantir que ele abra no boot são responsabilidade do agente de kiosk nativo
+(systemd, Agendador de Tarefas, Fully Kiosk). Os comandos `restart` e
+`update_version` são apenas repassados a `window.WindoorKiosk`, quando existir.
+Veja `deploy/README.md`.

@@ -1,47 +1,31 @@
-window.TotemPlayer = window.TotemPlayer || {};
+window.WindoorPlayer = window.WindoorPlayer || {};
 
-// Evita que o dispositivo suspenda/desligue a tela enquanto o totem está
-// rodando. Usa a Wake Lock API do navegador — nem todo Chromium embarcado
-// (Android TV Box, builds mais antigas) tem suporte, então falha em
-// silêncio quando a API não existe (a supervisão de tela nesse caso fica
-// por conta do agente de kiosk nativo / configuração do SO).
-TotemPlayer.wakelock = (function () {
+// Evita que o dispositivo suspenda/desligue a tela enquanto o player roda.
+// Nem todo Chromium embarcado tem Wake Lock API, então falha em silêncio
+// (nesse caso a supervisão fica por conta do agente de kiosk nativo).
+WindoorPlayer.wakelock = (function () {
   let wakeLockRef = null;
 
-  async function solicitar() {
+  async function request() {
     if (!('wakeLock' in navigator)) {
-      if (TotemPlayer.logger) {
-        TotemPlayer.logger.info('Wake Lock API não suportada neste navegador');
-      }
+      if (WindoorPlayer.logger) WindoorPlayer.logger.info('Wake Lock API não suportada neste navegador');
       return;
     }
-
     try {
       wakeLockRef = await navigator.wakeLock.request('screen');
-      wakeLockRef.addEventListener('release', () => {
-        wakeLockRef = null;
-      });
-    } catch (erro) {
-      // Pode falhar por permissão, aba não visível, bateria etc — não é
-      // fatal pro player, só registra.
-      if (TotemPlayer.logger) {
-        TotemPlayer.logger.info('Falha ao solicitar wake lock', { erro: erro.message });
-      }
+      wakeLockRef.addEventListener('release', () => { wakeLockRef = null; });
+    } catch (error) {
+      if (WindoorPlayer.logger) WindoorPlayer.logger.info('Falha ao solicitar wake lock', { error: error.message });
     }
   }
 
-  function iniciar() {
-    solicitar();
-
-    // O wake lock é liberado automaticamente pelo navegador quando a aba
-    // perde visibilidade (troca de app, tela bloqueada etc). Ao voltar a
-    // ficar visível, pede de novo.
+  function start() {
+    request();
+    // O wake lock é liberado quando a aba perde visibilidade; ao voltar, pede de novo.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        solicitar();
-      }
+      if (document.visibilityState === 'visible') request();
     });
   }
 
-  return { iniciar };
+  return { start };
 })();

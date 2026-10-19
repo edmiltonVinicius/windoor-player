@@ -1,36 +1,35 @@
-window.TotemPlayer = window.TotemPlayer || {};
+window.WindoorPlayer = window.WindoorPlayer || {};
 
-// Watchdog de travamento em JS: se o loop de rotação de ofertas (render.js)
-// não "bater" por um tempo muito maior que o esperado, força um reload da
-// página. Cobre o caso de o processo do navegador continuar vivo mas o JS
-// da página ter travado (loop infinito, exceção não tratada em algum
-// callback, etc) — complementa, não substitui, o watchdog do agente de
-// kiosk nativo (que cobre o navegador/processo/SO travando por completo).
-TotemPlayer.watchdog = (function () {
-  const MULTIPLICADOR_TIMEOUT = 3;
-  const INTERVALO_VERIFICACAO_MS = 5000;
+// Watchdog de travamento em JS: se o loop de rotação (render.js) não "bater"
+// por muito mais tempo que o esperado, recarrega a página. Complementa (não
+// substitui) o watchdog do agente de kiosk nativo.
+// Só é armado depois que o loop de conteúdo começou — nas telas de
+// pareamento, configuração e desativado não existe tick e um reload
+// apagaria o código que a pessoa está digitando.
+WindoorPlayer.watchdog = (function () {
+  const TIMEOUT_MULTIPLIER = 3;
+  const CHECK_INTERVAL_MS = 5000;
+  let timerId = null;
 
-  function verificar() {
-    const { render, logger } = TotemPlayer;
+  function check() {
+    const { render, logger, config } = WindoorPlayer;
     if (!render) return;
 
-    const tempoEsperadoMs = render.TEMPO_POR_OFERTA_MS * MULTIPLICADOR_TIMEOUT;
-    const decorridoMs = Date.now() - render.ultimoTickEm();
+    const expectedMs = config.CONTENT_DURATION_MS * TIMEOUT_MULTIPLIER;
+    const elapsedMs = Date.now() - render.lastTickAt();
 
-    if (decorridoMs > tempoEsperadoMs) {
-      if (logger) {
-        logger.erro('Watchdog detectou loop de exibição travado, recarregando a página', {
-          decorridoMs,
-          tempoEsperadoMs,
-        });
-      }
+    if (elapsedMs > expectedMs) {
+      if (logger) logger.error('Watchdog detectou loop de exibição travado, recarregando a página', { elapsedMs, expectedMs });
       location.reload();
     }
   }
 
-  function iniciar() {
-    setInterval(verificar, INTERVALO_VERIFICACAO_MS);
+  function start() {
+    if (timerId) clearInterval(timerId);
+    timerId = setInterval(check, CHECK_INTERVAL_MS);
   }
 
-  return { iniciar };
+  function stop() { if (timerId) { clearInterval(timerId); timerId = null; } }
+
+  return { start, stop, check };
 })();

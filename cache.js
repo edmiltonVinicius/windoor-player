@@ -1,119 +1,103 @@
-window.TotemPlayer = window.TotemPlayer || {};
+window.WindoorPlayer = window.WindoorPlayer || {};
 
-TotemPlayer.cache = (function () {
-  const DB_NAME = 'totem-cache';
-  const STORE = 'ofertas';
+WindoorPlayer.cache = (function () {
+  const DB_NAME = 'windoor-player';
+  const STORE = 'contents';
+  const IMAGE_CACHE = 'windoor-images-v1';
 
-  function abrirDB() {
+  // Resquícios do MVP single-tenant (totem-*): não há migração de dados,
+  // só limpeza, para não ocupar espaço no dispositivo indefinidamente.
+  (function dropLegacyStorage() {
+    try { indexedDB.deleteDatabase('totem-cache'); } catch (_) {}
+    try {
+      if (typeof caches !== 'undefined' && caches.delete) {
+        caches.delete('totem-imagens-v1');
+        caches.delete('totem-shell-v2');
+      }
+    } catch (_) {}
+  })();
+
+  function openDB() {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
   }
 
-  async function salvarOfertas(lista) {
-    const db = await abrirDB();
-    const tx = db.transaction(STORE, 'readwrite');
-    const store = tx.objectStore(STORE);
-    store.clear();
-    lista.forEach((oferta) => store.put(oferta));
-  }
+  // O feed é um documento só (layout + zonas + barra), gravado sob uma chave fixa.
+  // Resolve apenas quando a transação termina: alguns fluxos leem de volta logo em
+  // seguida, então "salvou" tem que ser verdade.
+  const FEED_KEY = 'feed';
 
-  async function lerOfertas() {
-    const db = await abrirDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction(STORE, 'readonly');
-      const req = tx.objectStore(STORE).getAll();
-      req.onsuccess = () => resolve(req.result);
+  async function saveFeed(feed) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      const store = tx.objectStore(STORE);
+      store.clear();
+      if (feed) store.put({ ...feed, id: FEED_KEY, cachedAt: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
     });
   }
 
-  // Converte "HH:MM" ou "HH:MM:SS" em minutos desde a meia-noite.
-  function paraMinutos(horaTexto) {
-    const partes = String(horaTexto).split(':').map(Number);
-    const horas = partes[0] || 0;
-    const minutos = partes[1] || 0;
-    return horas * 60 + minutos;
+  /** Último feed salvo, ou `null`. O descarte de vencidos é refeito na normalização. */
+  async function readFeed() {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(FEED_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
   }
-
-  // O backend já filtra por dayparting na resposta de /offers, mas o totem
-  // pode ficar horas offline exibindo a lista salva em cache local — nesse
-  // caso o filtro precisa ser refeito no cliente, comparando com o horário
-  // atual do dispositivo. Ofertas sem daypartingStart/daypartingEnd são
-  // sempre consideradas válidas (sem restrição de horário).
-  function estaDentroDoHorario(oferta, agora) {
-    const inicio = oferta && oferta.daypartingStart;
-    const fim = oferta && oferta.daypartingEnd;
-    if (!inicio || !fim) return true;
-
-    const agoraMin = agora.getHours() * 60 + agora.getMinutes();
-    const inicioMin = paraMinutos(inicio);
-    const fimMin = paraMinutos(fim);
-
-    if (inicioMin <= fimMin) {
-      // Janela normal dentro do mesmo dia, ex: 08:00–22:00.
-      return agoraMin >= inicioMin && agoraMin <= fimMin;
-    }
-    // Janela que cruza a meia-noite, ex: 22:00–06:00.
-    return agoraMin >= inicioMin || agoraMin <= fimMin;
-  }
-
-  function filtrarPorDayparting(lista, agora) {
-    const referencia = agora || new Date();
-    return (lista || []).filter((oferta) => estaDentroDoHorario(oferta, referencia));
-  }
-
-  const CACHE_IMAGENS = 'totem-imagens-v1';
 
   // Cache-first: checa o Cache Storage pela URL exata; se não tiver, faz
   // fetch (com EXTRA_HEADERS, por causa do túnel ngrok em dev) e guarda a
   // Response clonada. Devolve um blob URL pronto pra usar em <img>.
-  async function obterImagemCacheada(url) {
-    const cache = await caches.open(CACHE_IMAGENS);
-    let resposta = await cache.match(url);
-    if (!resposta) {
-      resposta = await fetch(url, { headers: TotemPlayer.config.EXTRA_HEADERS });
-      if (!resposta.ok) throw new Error(`resposta não-ok ao buscar imagem: ${resposta.status}`);
-      cache.put(url, resposta.clone());
+  // Nunca envia Authorization: as imagens são públicas.
+  async function getCachedImage(url) {
+    const cache = await caches.open(IMAGE_CACHE);
+    let response = await cache.match(url);
+    if (!response) {
+      response = await fetch(url, { headers: WindoorPlayer.config.EXTRA_HEADERS });
+      if (!response.ok) throw new Error(`resposta não-ok ao buscar imagem: ${response.status}`);
+      cache.put(url, response.clone());
     }
-    const blob = await resposta.blob();
+    const blob = await response.blob();
     return URL.createObjectURL(blob);
   }
 
-  // Pré-carrega em paralelo as imagens de uma lista de ofertas, sem bloquear
-  // quem chamou (fire-and-forget). Falha de uma imagem não afeta as outras.
-  function preCarregarImagens(lista) {
-    (lista || []).forEach((oferta) => {
-      obterImagemCacheada(oferta.imageUrl).catch((erro) => {
-        if (TotemPlayer.logger) {
-          TotemPlayer.logger.erro('Falha ao pré-carregar imagem', { url: oferta.imageUrl, erro: erro.message });
+  // Pré-carrega em paralelo as imagens do feed, sem bloquear quem chamou
+  // (fire-and-forget). Falha de uma imagem não afeta as outras. Vídeo fica de
+  // fora de propósito: até 200 MB por arquivo encheria o Cache Storage.
+  function preloadImages(feed) {
+    WindoorPlayer.feed.imageUrls(feed).forEach((url) => {
+      getCachedImage(url).catch((error) => {
+        if (WindoorPlayer.logger) {
+          WindoorPlayer.logger.error('Falha ao pré-carregar imagem', { url, error: error.message });
         }
       });
     });
   }
 
-  // Remove do Cache Storage imagens que não pertencem a nenhuma oferta da
-  // lista atual — evita crescimento ilimitado em operação 24/7. Seguro
-  // porque cada upload gera um UUID novo de arquivo: uma imageUrl nunca
-  // muda de conteúdo, então "fora da lista atual" == "pode apagar".
-  async function limparImagensObsoletas(listaAtual) {
-    const cache = await caches.open(CACHE_IMAGENS);
-    const urlsValidas = new Set((listaAtual || []).map((o) => o.imageUrl));
+  // Remove do Cache Storage imagens fora do feed atual — evita crescimento
+  // ilimitado em operação 24/7. Seguro porque cada upload gera um UUID novo:
+  // uma URL nunca muda de conteúdo.
+  async function pruneImages(feed) {
+    const cache = await caches.open(IMAGE_CACHE);
+    const valid = new Set(WindoorPlayer.feed.imageUrls(feed));
     const requests = await cache.keys();
     await Promise.all(
-      requests.filter((req) => !urlsValidas.has(req.url)).map((req) => cache.delete(req))
+      requests.filter((req) => !valid.has(req.url)).map((req) => cache.delete(req))
     );
   }
 
-  return {
-    salvarOfertas,
-    lerOfertas,
-    filtrarPorDayparting,
-    estaDentroDoHorario,
-    obterImagemCacheada,
-    preCarregarImagens,
-    limparImagensObsoletas,
-  };
+  return { saveFeed, readFeed, getCachedImage, preloadImages, pruneImages, DB_NAME, STORE, IMAGE_CACHE, FEED_KEY };
 })();

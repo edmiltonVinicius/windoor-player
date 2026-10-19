@@ -2,219 +2,277 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Totem - Teste</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Windoor Player — teste visual</title>
 <style>
-  html, body {
-    margin: 0; padding: 0;
-    width: 100vw; height: 100vh;
-    overflow: hidden;
-    font-family: sans-serif;
+  :root {
+    --bg: #0A0712; --card: #171424; --border: #2B2740;
+    --text: #EEEDF5; --text-2: #B4B0C8; --text-3: #928DAB;
+    --primary: #5AA3DC; --error: #F0707A; --success: #4CC38A;
+    --brand: linear-gradient(90deg,#3485C4,#5A3A8F 35%,#C8302F 70%,#E75911);
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
+  html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; font-family: var(--font); }
 
-  /* Estado: carregando (splash inicial, antes de saber se a API responde) */
-  #carregando {
-    display: none;
-    width: 100%; height: 100%;
-    flex-direction: column;
-    align-items: center; justify-content: center;
-    background: #10131a;
-    color: #fff;
+  .screen {
+    display: none; width: 100%; height: 100%;
+    flex-direction: column; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text); text-align: center;
+    box-sizing: border-box; padding: 4vh 4vw;
   }
-  #carregando .spinner {
-    width: 48px; height: 48px;
-    border: 5px solid rgba(255,255,255,0.2);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: girar 0.9s linear infinite;
-    margin-bottom: 16px;
-  }
-  @keyframes girar { to { transform: rotate(360deg); } }
+  .brand-bar { width: 120px; height: 5px; background: var(--brand); border-radius: 3px; margin: 16px 0 20px; }
+  .logo { width: 96px; height: 96px; border-radius: 12px; background: var(--brand); }
+  .screen h1 { font-size: 32px; font-weight: 700; margin: 0 0 8px; }
+  .screen p { font-size: 18px; color: var(--text-2); max-width: 560px; line-height: 1.45; margin: 0; }
 
-  /* Estado: oferta normal */
-  #oferta {
-    display: none;
-    width: 100%; height: 100%;
-    flex-direction: column;
-    align-items: center; justify-content: center;
-    color: #fff;
-    text-align: center;
-    transition: background-color 0.4s ease;
+  /* pareamento */
+  #pairing .logo { width: 72px; height: 72px; }
+  #pairing h1 { font-size: 40px; }
+  #pairing .subtitle { font-size: 20px; color: var(--text-2); margin: 0 0 24px; }
+  #pairing-code {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 28px; font-size: 64px; font-weight: 700; letter-spacing: .14em; line-height: 1.1;
   }
-  #oferta .titulo { font-size: 8vw; font-weight: bold; margin-bottom: 1vh; }
-  #oferta .preco { font-size: 14vw; font-weight: 900; }
-  #oferta .categoria { font-size: 3vw; opacity: 0.8; margin-top: 2vh; text-transform: uppercase; letter-spacing: 2px; }
+  #pairing-code .placeholder { color: var(--text-3); }
+  .pairing-message { font-size: 20px; height: 28px; line-height: 28px; margin: 16px 0; color: var(--text-2); }
+  #keypad { display: grid; grid-template-columns: repeat(3, 88px); gap: 12px; justify-content: center; }
+  #keypad .key {
+    width: 88px; height: 72px; border-radius: 12px; background: var(--card);
+    border: 1px solid var(--border); color: var(--text); font-size: 28px; font-family: var(--font);
+  }
+  #keypad .key[data-action] { font-size: 18px; }
+  #keypad .key.primary { background: var(--primary); color: var(--bg); border-color: var(--primary); font-weight: 700; }
+  #pairing .footer { margin-top: 24px; font-size: 14px; color: var(--text-3); }
 
-  /* Estado: fallback de erro (branded, placeholder de identidade visual do
-     Atacadão — sem assets reais disponíveis ainda) */
-  #fallback {
-    display: none;
-    width: 100%; height: 100%;
-    flex-direction: column;
-    align-items: center; justify-content: center;
-    background: linear-gradient(160deg, #003DA5 0%, #001B45 100%);
-    color: #fff;
-    text-align: center;
-    box-sizing: border-box;
-    padding: 24px;
+  /* carregando */
+  #loading .spinner {
+    width: 48px; height: 48px; border: 5px solid rgba(238,237,245,0.2);
+    border-top-color: var(--primary); border-radius: 50%;
+    animation: spin 0.9s linear infinite; margin-bottom: 16px;
   }
-  #fallback .logo-placeholder {
-    width: 120px; height: 120px;
-    border-radius: 50%;
-    background: #E30613;
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 900; font-size: 22px; letter-spacing: 1px;
-    margin-bottom: 24px;
-  }
-  #fallback .titulo { font-size: 28px; font-weight: bold; margin-bottom: 8px; }
-  #fallback .subtitulo { font-size: 16px; opacity: 0.85; max-width: 480px; line-height: 1.4; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-  #status {
-    position: fixed; bottom: 10px; right: 16px;
-    color: rgba(255,255,255,0.6);
-    font-size: 14px;
-    z-index: 30;
+  /* conteúdo: zonas do layout + barra de informações (espelha index.html) */
+  #content { position: relative; padding: 0; background: #000; flex-direction: column; }
+  #zones { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; }
+  #zones[data-layout="split_top_bottom"] .zone { flex: 1 1 50%; }
+  #zones[data-layout="fullscreen"] .zone { flex: 1 1 100%; }
+  .zone { position: relative; min-height: 0; overflow: hidden; background: #000; }
+  .content-img {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    object-fit: cover; opacity: 0; transition: opacity 1000ms ease-in-out;
   }
+  .content-img.visible { opacity: 1; }
+  #info-bar {
+    display: flex; height: 7vh; min-height: 44px; width: 100%;
+    align-items: center; justify-content: space-between; gap: 2vw; padding: 0 2vw;
+    box-sizing: border-box; background: var(--bg); border-top: 1px solid var(--border); color: var(--text);
+  }
+  #info-bar-clock { font-size: 3vh; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #info-bar-message { flex: 1; min-width: 0; text-align: center; font-size: 2.6vh; color: var(--text-2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #info-bar .logo-bar { font-size: 2.2vh; color: var(--primary); font-weight: 700; }
 
-  /* Painel só existe nesta página de teste, para alternar manualmente entre
-     os estados visuais e validar em hardware físico antes do backend
-     estar pronto. Não faz parte do player real (index.html). */
-  #controles {
-    position: fixed; top: 8px; left: 8px; z-index: 30;
-    display: flex; gap: 8px;
-  }
-  #controles button {
-    font-size: 12px; padding: 6px 10px; cursor: pointer;
-    border: none; border-radius: 4px; background: rgba(255,255,255,0.85);
+  #status { position: fixed; bottom: 8px; right: 8px; color: #555; font-size: 12px; z-index: 20; }
+  #controls { position: fixed; top: 8px; left: 8px; z-index: 30; display: flex; gap: 8px; flex-wrap: wrap; }
+  #controls button {
+    font-size: 12px; padding: 6px 10px; cursor: pointer; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--card); color: var(--text); font-family: var(--font);
   }
 </style>
 </head>
 <body>
-  <div id="controles">
-    <button onclick="TotemTeste.mostrarCarregando()">Carregando</button>
-    <button onclick="TotemTeste.mostrarOfertaDemo()">Oferta normal</button>
-    <button onclick="TotemTeste.mostrarErro()">Erro / fallback</button>
+  <div id="controls">
+    <button onclick="WindoorTest.showPairing()">Pareamento</button>
+    <button onclick="WindoorTest.showLoading()">Carregando</button>
+    <button onclick="WindoorTest.showDemoContent()">Conteúdo</button>
+    <button onclick="WindoorTest.showFallback()">Fallback</button>
+    <button onclick="WindoorTest.showInactive()">Desativado</button>
   </div>
 
-  <div id="carregando">
+  <div id="pairing" class="screen">
+    <div class="logo"></div>
+    <div class="brand-bar"></div>
+    <h1>Parear este player</h1>
+    <p class="subtitle">Digite o código mostrado no painel Windoor.</p>
+    <div id="pairing-code"></div>
+    <div class="pairing-message">&nbsp;</div>
+    <div id="keypad">
+      <button class="key">1</button><button class="key">2</button><button class="key">3</button>
+      <button class="key">4</button><button class="key">5</button><button class="key">6</button>
+      <button class="key">7</button><button class="key">8</button><button class="key">9</button>
+      <button class="key" data-action="backspace">Apagar</button>
+      <button class="key">0</button>
+      <button class="key primary" data-action="confirm">Parear</button>
+    </div>
+    <div class="footer">
+      Onde encontro o código? No painel Windoor, em Unidades → Ver código.
+      <div>versão 2.0.0</div>
+    </div>
+  </div>
+
+  <div id="loading" class="screen">
     <div class="spinner"></div>
-    <div>carregando ofertas…</div>
+    <p>carregando conteúdo…</p>
   </div>
 
-  <div id="oferta"></div>
+  <div id="content" class="screen">
+    <div id="zones" data-layout="split_top_bottom">
+      <div class="zone" data-position="top">
+        <img id="img-a" class="content-img visible" alt="">
+        <img id="img-b" class="content-img" alt="">
+      </div>
+      <div class="zone" data-position="bottom">
+        <img id="img-c" class="content-img visible" alt="">
+        <img id="img-d" class="content-img" alt="">
+      </div>
+    </div>
+    <div id="info-bar">
+      <span id="info-bar-clock">--:--</span>
+      <span id="info-bar-message">Reunião de condomínio quinta, 19h</span>
+      <span class="logo-bar">Windoor</span>
+    </div>
+  </div>
 
-  <div id="fallback">
-    <div class="logo-placeholder">ATC</div>
-    <div class="titulo">Estamos atualizando as ofertas</div>
-    <div class="subtitulo">Não foi possível carregar as ofertas no momento. O totem vai continuar tentando se reconectar automaticamente.</div>
+  <div id="fallback" class="screen">
+    <div class="logo"></div>
+    <div class="brand-bar"></div>
+    <h1>Estamos atualizando o conteúdo</h1>
+    <p>Não foi possível carregar o conteúdo no momento. O player vai continuar tentando se reconectar automaticamente.</p>
+  </div>
+
+  <div id="inactive" class="screen">
+    <div class="logo"></div>
+    <div class="brand-bar"></div>
+    <h1>Player desativado</h1>
+    <p>Este player foi desativado no painel Windoor. Ele volta a funcionar sozinho quando for reativado.</p>
   </div>
 
   <div id="status">modo teste — sem backend</div>
 
   <script>
-    // Página standalone (sem backend, sem os módulos de TotemPlayer) só pra
-    // validar visualmente em hardware físico como cada estado do player
-    // real (index.html) se parece: carregando, oferta normal e o fallback
-    // de erro/offline sem cache. Alterna sozinha em loop e também permite
-    // troca manual pelos botões do canto superior esquerdo.
-
-    const ofertasFake = [
-      { title: 'Arroz 5kg', price: 'R$ 19,90', category: 'Mercearia', cor: '#c0392b' },
-      { title: 'Óleo de Soja 900ml', price: 'R$ 7,49', category: 'Mercearia', cor: '#27ae60' },
-      { title: 'Carne Bovina kg', price: 'R$ 34,90', category: 'Açougue', cor: '#2980b9' },
-      { title: 'Refrigerante 2L', price: 'R$ 8,99', category: 'Bebidas', cor: '#8e44ad' },
-      { title: 'Detergente 500ml', price: 'R$ 2,49', category: 'Limpeza', cor: '#d35400' },
-    ];
-
-    const TEMPO_POR_OFERTA_MS = 8000;
-    let indiceOferta = 0;
-    let intervalOfertaId = null;
-    let cicloAutoplayId = null;
-
-    const telas = {
-      carregando: document.getElementById('carregando'),
-      oferta: document.getElementById('oferta'),
-      fallback: document.getElementById('fallback'),
-    };
-
-    function mostrarTela(nome) {
-      Object.keys(telas).forEach((chave) => {
-        telas[chave].style.display = chave === nome ? 'flex' : 'none';
-      });
-    }
-
-    function renderizarOferta(oferta) {
-      const el = telas.oferta;
-      el.style.backgroundColor = oferta.cor;
-      el.innerHTML = `
-        <div class="titulo">${oferta.title}</div>
-        <div class="preco">${oferta.price}</div>
-        <div class="categoria">${oferta.category}</div>
-      `;
-    }
-
-    function pararRotacaoOfertas() {
-      if (intervalOfertaId) {
-        clearInterval(intervalOfertaId);
-        intervalOfertaId = null;
-      }
-    }
-
-    function mostrarCarregando() {
-      pararRotacaoOfertas();
-      mostrarTela('carregando');
-    }
-
-    function mostrarOfertaDemo() {
-      pararRotacaoOfertas();
-      mostrarTela('oferta');
-      renderizarOferta(ofertasFake[indiceOferta]);
-      intervalOfertaId = setInterval(() => {
-        indiceOferta = (indiceOferta + 1) % ofertasFake.length;
-        renderizarOferta(ofertasFake[indiceOferta]);
-      }, TEMPO_POR_OFERTA_MS);
-    }
-
-    function mostrarErro() {
-      pararRotacaoOfertas();
-      mostrarTela('fallback');
-    }
-
-    // Autoplay: demonstra os 3 estados em sequência, sem precisar clicar,
-    // útil pra deixar rodando numa TV/totem físico só de olho.
-    function iniciarAutoplayDemo() {
-      const passos = [
-        { fn: mostrarCarregando, duracaoMs: 3000 },
-        { fn: mostrarOfertaDemo, duracaoMs: 5 * TEMPO_POR_OFERTA_MS },
-        { fn: mostrarErro, duracaoMs: 6000 },
+    // Página standalone (sem backend e sem os módulos de WindoorPlayer) só
+    // pra validar visualmente em hardware físico os 5 estados do player
+    // real. Usa a mesma paleta e as mesmas medidas de index.html.
+    (function () {
+      const CONTENT_DURATION_MS = 8000;
+      const DEMO_CODE = '482915';
+      const DEMO_IMAGES = [
+        'https://picsum.photos/id/1015/1920/1080',
+        'https://picsum.photos/id/1025/1920/1080',
+        'https://picsum.photos/id/1039/1920/1080',
       ];
-      let passoAtual = 0;
 
-      function proximoPasso() {
-        const passo = passos[passoAtual];
-        passo.fn();
-        passoAtual = (passoAtual + 1) % passos.length;
-        cicloAutoplayId = setTimeout(proximoPasso, passo.duracaoMs);
+      const screens = ['pairing', 'loading', 'content', 'fallback', 'inactive'];
+      let rotationId = null;
+      let autoplayId = null;
+      let imgIndex = 0;
+      let activeImg = null;
+
+      function showScreen(name) {
+        screens.forEach((id) => {
+          const el = document.getElementById(id);
+          el.style.display = id === name ? 'flex' : 'none';
+        });
       }
 
-      proximoPasso();
-    }
-
-    function pararAutoplay() {
-      if (cicloAutoplayId) {
-        clearTimeout(cicloAutoplayId);
-        cicloAutoplayId = null;
+      function renderCode(digits) {
+        const display = document.getElementById('pairing-code');
+        const padded = String(digits).padEnd(6, '•');
+        display.textContent = '';
+        padded.split('').forEach((ch, i) => {
+          if (i === 3) { const sep = document.createElement('span'); sep.textContent = '-'; display.appendChild(sep); }
+          const span = document.createElement('span');
+          span.textContent = ch;
+          if (ch === '•') span.className = 'placeholder';
+          display.appendChild(span);
+        });
       }
-    }
 
-    // Clique manual nos botões assume o controle e para o autoplay, senão
-    // o passo seguinte da demo sobrescreveria a escolha do usuário.
-    window.TotemTeste = {
-      mostrarCarregando: () => { pararAutoplay(); mostrarCarregando(); },
-      mostrarOfertaDemo: () => { pararAutoplay(); mostrarOfertaDemo(); },
-      mostrarErro: () => { pararAutoplay(); mostrarErro(); },
-    };
+      // Cada zona roda sua própria sequência, com tempo próprio — como no player real.
+      const rotations = [];
+      function stopRotation() {
+        if (rotationId) { clearInterval(rotationId); rotationId = null; }
+        while (rotations.length) clearInterval(rotations.pop());
+      }
 
-    iniciarAutoplayDemo();
+      function makeZoneRotation(idA, idB, startIndex) {
+        let index = startIndex;
+        let active = null;
+        return function swap() {
+          const a = document.getElementById(idA);
+          const b = document.getElementById(idB);
+          active = active === a ? b : a;
+          const other = active === a ? b : a;
+          active.src = DEMO_IMAGES[index % DEMO_IMAGES.length];
+          active.classList.add('visible');
+          other.classList.remove('visible');
+          index += 1;
+        };
+      }
+
+      const BAR_MESSAGES = ['Reunião de condomínio quinta, 19h', 'Manutenção do elevador social sábado'];
+      function startInfoBar() {
+        const clock = document.getElementById('info-bar-clock');
+        const message = document.getElementById('info-bar-message');
+        const tick = () => { clock.textContent = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+        tick();
+        rotations.push(setInterval(tick, 15000));
+        let i = 0;
+        rotations.push(setInterval(() => {
+          i = (i + 1) % BAR_MESSAGES.length;
+          message.textContent = BAR_MESSAGES[i];
+        }, 5000));
+      }
+
+      function showPairing() { stopRotation(); renderCode(DEMO_CODE); showScreen('pairing'); }
+      function showLoading() { stopRotation(); showScreen('loading'); }
+      function showFallback() { stopRotation(); showScreen('fallback'); }
+      function showInactive() { stopRotation(); showScreen('inactive'); }
+      function showDemoContent() {
+        stopRotation();
+        showScreen('content');
+        // Duas zonas com durações diferentes, para ver que são independentes.
+        const top = makeZoneRotation('img-a', 'img-b', 0);
+        const bottom = makeZoneRotation('img-c', 'img-d', 1);
+        top(); bottom();
+        rotations.push(setInterval(top, CONTENT_DURATION_MS));
+        rotations.push(setInterval(bottom, CONTENT_DURATION_MS * 1.5));
+        startInfoBar();
+      }
+
+      // Autoplay: percorre os 5 estados sem precisar clicar, útil pra deixar
+      // rodando numa TV/player físico só de olho.
+      function startAutoplay() {
+        const steps = [
+          { fn: showPairing, ms: 6000 },
+          { fn: showLoading, ms: 3000 },
+          { fn: showDemoContent, ms: 3 * CONTENT_DURATION_MS },
+          { fn: showFallback, ms: 6000 },
+          { fn: showInactive, ms: 6000 },
+        ];
+        let i = 0;
+        (function next() {
+          const step = steps[i];
+          step.fn();
+          i = (i + 1) % steps.length;
+          autoplayId = setTimeout(next, step.ms);
+        })();
+      }
+      function stopAutoplay() { if (autoplayId) { clearTimeout(autoplayId); autoplayId = null; } }
+
+      // Clique manual assume o controle, senão o passo seguinte da demo
+      // sobrescreveria a escolha de quem está testando.
+      window.WindoorTest = {
+        showPairing: () => { stopAutoplay(); showPairing(); },
+        showLoading: () => { stopAutoplay(); showLoading(); },
+        showDemoContent: () => { stopAutoplay(); showDemoContent(); },
+        showFallback: () => { stopAutoplay(); showFallback(); },
+        showInactive: () => { stopAutoplay(); showInactive(); },
+      };
+
+      startAutoplay();
+    })();
   </script>
 </body>
 </html>

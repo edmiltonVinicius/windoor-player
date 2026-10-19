@@ -1,35 +1,25 @@
-window.TotemPlayer = window.TotemPlayer || {};
+window.WindoorPlayer = window.WindoorPlayer || {};
 
-// Reporta ao backend quanto tempo cada oferta ficou de fato na tela.
-// Chamado pelo render.js toda vez que uma oferta sai de cena (seja pela
-// troca automática do loop, seja por uma nova lista chegando via WebSocket).
-TotemPlayer.proofOfPlay = (function () {
-  function reportar(oferta, duracaoMs) {
-    if (!oferta || !oferta.id) return;
+// Reporta quanto tempo cada conteúdo ficou de fato na tela. Chamado pelo
+// render.js toda vez que um item sai de cena, em qualquer zona (troca da
+// sequência ou feed novo chegando pelo socket).
+WindoorPlayer.proofOfPlay = (function () {
+  function report(item, durationMs) {
+    if (!item) return;
+    // `contentId` é o conteúdo; `id` é o item dentro da playlist.
+    const contentId = item.contentId || item.id;
+    if (!contentId) return;
+    const { config, api, logger } = WindoorPlayer;
+    if (!config.getToken()) return;
 
-    const { TOTEM_ID, API_URL, EXTRA_HEADERS } = TotemPlayer.config;
-
-    fetch(`${API_URL}/totems/${TOTEM_ID}/proof-of-play`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...EXTRA_HEADERS },
-      body: JSON.stringify({
-        offerId: oferta.id,
-        durationMs: Math.max(0, Math.round(duracaoMs)),
-      }),
-      // keepalive garante que o request tenta sair mesmo se a troca de
-      // oferta coincidir com um unload/reload da página.
-      keepalive: true,
-    }).catch((erro) => {
-      // Sem internet é esperado às vezes — não deixa o proof-of-play
-      // derrubar o player, só registra pra auditoria.
-      if (TotemPlayer.logger) {
-        TotemPlayer.logger.info('Proof of play não enviado (provavelmente offline)', {
-          ofertaId: oferta.id,
-          erro: erro.message,
-        });
-      }
+    // keepalive: o request tenta sair mesmo se a troca coincidir com reload.
+    api.post('/player/proof-of-play', {
+      contentId,
+      durationMs: Math.max(0, Math.round(durationMs)),
+    }, { keepalive: true }).catch((error) => {
+      if (logger) logger.info('Proof of play não enviado (provavelmente offline)', { contentId, error: error.message });
     });
   }
 
-  return { reportar };
+  return { report };
 })();

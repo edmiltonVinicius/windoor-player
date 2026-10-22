@@ -8,11 +8,11 @@
   <title>Windoor Player</title>
   <style>
     :root {
-      --bg: #0A0712;
+      --bg: #08060F;
       --card: #171424;
-      --border: #2B2740;
+      --border: #3A3558;
       --text: #EEEDF5;
-      --text-2: #B4B0C8;
+      --text-2: #B9B5CC;
       --text-3: #928DAB;
       --primary: #5AA3DC;
       --error: #F0707A;
@@ -20,17 +20,17 @@
       --brand: linear-gradient(90deg,#3485C4,#5A3A8F 35%,#C8302F 70%,#E75911);
       --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }
-    html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; }
+    html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: var(--bg); }
 
     /* ---- conteúdo: zonas + barra ---- */
-    #content { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; }
+    /* Mesmas proporções do ScreenPreview do CMS: padding/gap entre zonas e cantos arredondados. */
+    #content { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg); }
 
     /* O layout define a divisão: uma zona cheia ou duas empilhadas. */
-    #zones { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    #zones { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0.6vh; padding: 0.6vh; box-sizing: border-box; }
     #zones[data-layout="split_top_bottom"] .zone { flex: 1 1 50%; }
     #zones[data-layout="fullscreen"] .zone { flex: 1 1 100%; }
-    .zone { position: relative; min-height: 0; overflow: hidden; background: #000; }
-    #zones[data-layout="split_top_bottom"] .zone[data-position="bottom"] { border-top: 1px solid #000; }
+    .zone { position: relative; min-height: 0; overflow: hidden; background: #000; border-radius: 0.8vh; }
 
     /* Mídias empilhadas alternando opacity = cross-fade suave. */
     .zone-media {
@@ -57,14 +57,16 @@
       background: var(--bg); border-top: 1px solid var(--border);
       color: var(--text); font-family: var(--font);
     }
-    #info-bar-clock { font-size: 3vh; font-weight: 700; font-variant-numeric: tabular-nums; }
+    #info-bar .clock-group { display: flex; align-items: center; gap: 0.8vw; }
+    #info-bar .clock-icon { width: 2.4vh; height: 2.4vh; color: var(--text); flex-shrink: 0; }
+    #info-bar-clock { font-size: 2.2vh; font-weight: 600; font-variant-numeric: tabular-nums; }
     #info-bar-message {
       flex: 1; min-width: 0;
-      text-align: center; font-size: 2.6vh; color: var(--text-2);
+      text-align: center; font-size: 2vh; font-weight: 500; color: var(--text-2);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     #info-bar .logo-bar { display: flex; align-items: center; gap: 8px; }
-    #info-bar .logo-bar img { height: 4vh; width: auto; border-radius: 6px; }
+    #info-bar .logo-bar img { height: 3.2vh; width: 3.2vh; flex-shrink: 0; }
 
     #status { position: fixed; bottom: 8px; right: 8px; color: #555; font-family: var(--font); font-size: 12px; z-index: 20; }
 
@@ -115,7 +117,13 @@
     <!-- as zonas são criadas pelo render.js conforme o layout do player -->
     <div id="zones" data-layout="fullscreen"></div>
     <div id="info-bar">
-      <span id="info-bar-clock">--:--</span>
+      <span class="clock-group">
+        <svg class="clock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <span id="info-bar-clock">--:--</span>
+      </span>
       <span id="info-bar-message"></span>
       <span class="logo-bar"><img src="assets/logo.png" alt="Windoor"></span>
     </div>

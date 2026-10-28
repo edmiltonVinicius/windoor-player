@@ -1,4 +1,4 @@
-const CACHE_NAME = 'windoor-shell-v1';
+const CACHE_NAME = 'windoor-shell-v2';
 const IMAGE_CACHE = 'windoor-images-v1';
 const SHELL_FILES = [
   './',
@@ -18,6 +18,10 @@ const SHELL_FILES = [
   './app.js',
   './vendor/socket.io.min.js',
   './assets/logo.png',
+  './assets/fonts/pjs-latin.woff2',
+  './assets/fonts/pjs-latin-ext.woff2',
+  './assets/fonts/pjs-vietnamese.woff2',
+  './assets/fonts/pjs-cyrillic-ext.woff2',
 ];
 
 // Ao instalar, guarda o "esqueleto" da página (HTML/JS/logo/socket.io).

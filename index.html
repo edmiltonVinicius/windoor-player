@@ -7,6 +7,43 @@
   <meta name="windoor-api-url" content="">
   <title>Windoor Player</title>
   <style>
+    /* ---- Fonte local: Plus Jakarta Sans (woff2 empacotados) ---- */
+    @font-face {
+      font-family: 'Plus Jakarta Sans';
+      font-style: normal;
+      font-weight: 400 800;
+      font-display: swap;
+      src: url('assets/fonts/pjs-cyrillic-ext.woff2') format('woff2');
+      unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+    }
+    @font-face {
+      font-family: 'Plus Jakarta Sans';
+      font-style: normal;
+      font-weight: 400 800;
+      font-display: swap;
+      src: url('assets/fonts/pjs-vietnamese.woff2') format('woff2');
+      unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+    }
+    @font-face {
+      font-family: 'Plus Jakarta Sans';
+      font-style: normal;
+      font-weight: 400 800;
+      font-display: swap;
+      src: url('assets/fonts/pjs-latin-ext.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+    @font-face {
+      font-family: 'Plus Jakarta Sans';
+      font-style: normal;
+      font-weight: 400 800;
+      font-display: swap;
+      src: url('assets/fonts/pjs-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+
+    /* ---- Escala global: 1rem = 10 px quando o lado curto = 1080 px ---- */
+    html { font-size: calc(100vmin / 108); }
+
     :root {
       --bg: #08060F;
       --card: #171424;
@@ -18,21 +55,18 @@
       --error: #F0707A;
       --success: #4CC38A;
       --brand: linear-gradient(90deg,#3485C4,#5A3A8F 35%,#C8302F 70%,#E75911);
-      --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     }
     html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: var(--bg); }
 
     /* ---- conteúdo: zonas + barra ---- */
-    /* Mesmas proporções do ScreenPreview do CMS: padding/gap entre zonas e cantos arredondados. */
     #content { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg); }
 
-    /* O layout define a divisão: uma zona cheia ou duas empilhadas. */
     #zones { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0.6vh; padding: 0.6vh; box-sizing: border-box; }
     #zones[data-layout="split_top_bottom"] .zone { flex: 1 1 50%; }
     #zones[data-layout="fullscreen"] .zone { flex: 1 1 100%; }
     .zone { position: relative; min-height: 0; overflow: hidden; background: #000; border-radius: 0.8vh; }
 
-    /* Mídias empilhadas alternando opacity = cross-fade suave. */
     .zone-media {
       position: absolute; top: 0; left: 0;
       width: 100%; height: 100%;
@@ -48,7 +82,7 @@
       background: var(--bg);
     }
 
-    /* ---- barra de informações (configurada por unidade) ---- */
+    /* ---- barra de informações ---- */
     #info-bar {
       display: none;
       height: 7vh; min-height: 44px;
@@ -87,28 +121,518 @@
     .system-screen h1 { font-size: 32px; font-weight: 700; margin: 0 0 8px; }
     .system-screen p { font-size: 18px; color: var(--text-2); max-width: 560px; line-height: 1.45; margin: 0; }
 
-    /* ---- pareamento ---- */
-    #pairing h1 { font-size: 40px; }
-    #pairing .subtitle { font-size: 20px; color: var(--text-2); margin: 0 0 24px; }
-    #pairing-code {
-      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-      padding: 16px 28px; font-size: 64px; font-weight: 700; letter-spacing: .14em;
-      line-height: 1.1;
+    /* ================================================================
+       NOVA TELA DE PAREAMENTO
+       ================================================================ */
+
+    /* Tokens do tema escuro (padrão do player) */
+    #pairing {
+      --p-bg: #0F0D18;
+      --p-surface: #171424;
+      --p-surface-2: #1F1B30;
+      --p-border: #2B2740;
+      --p-border-strong: #3A3558;
+      --p-text: #EEEDF5;
+      --p-text-2: #B4B0C8;
+      --p-text-3: #928DAB;
+      --p-primary: #5AA3DC;
+      --p-primary-hover: #79B5E4;
+      --p-primary-soft: #1A2B3D;
+      --p-on-primary: #0A0712;
+      --p-success: #4CC38A;
+      --p-success-soft: #13271E;
+      --p-warning: #E8B04A;
+      --p-warning-soft: #2B2210;
+      --p-danger: #F0707A;
+      --p-danger-soft: #2D1519;
+      --p-focus: #5AA3DC;
+      --p-shadow: 0 1px 2px rgba(0,0,0,.4);
+      --p-grad: linear-gradient(90deg, #3485C4, #5A3A8F 35%, #C8302F 70%, #E75911);
     }
-    #pairing-code .placeholder { color: var(--text-3); }
-    .pairing-message { font-size: 20px; height: 28px; line-height: 28px; margin: 16px 0; color: var(--text-2); }
-    .pairing-message.error { color: var(--error); }
-    .pairing-message.success { color: var(--success); }
-    #pairing-keypad { display: grid; grid-template-columns: repeat(3, 88px); gap: 12px; justify-content: center; }
-    #pairing-keypad .key {
-      width: 88px; height: 72px; border-radius: 12px;
-      background: var(--card); border: 1px solid var(--border);
-      color: var(--text); font-size: 28px; font-family: var(--font); cursor: pointer;
+
+    /* Tema claro: via prefers-color-scheme ou data-theme="light" */
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) #pairing {
+        --p-bg: #F6F7FA;
+        --p-surface: #FFFFFF;
+        --p-surface-2: #F1F3F8;
+        --p-border: #E3E6EE;
+        --p-border-strong: #CDD2DE;
+        --p-text: #151826;
+        --p-text-2: #535A6E;
+        --p-text-3: #6B7287;
+        --p-primary: #2A6FA6;
+        --p-primary-hover: #235E8E;
+        --p-primary-soft: #E7F1F9;
+        --p-on-primary: #FFFFFF;
+        --p-success: #1B7F46;
+        --p-success-soft: #E5F5EB;
+        --p-warning: #9A6200;
+        --p-warning-soft: #FDF2D9;
+        --p-danger: #C22D39;
+        --p-danger-soft: #FDEBED;
+        --p-focus: #3485C4;
+        --p-shadow: 0 1px 2px rgba(21,24,38,.06);
+      }
     }
-    #pairing-keypad .key[data-action] { font-size: 18px; }
-    #pairing-keypad .key.primary { background: var(--primary); color: var(--bg); border-color: var(--primary); font-weight: 700; }
-    #pairing-keypad .key:disabled { opacity: .45; cursor: default; }
-    #pairing .footer { margin-top: 24px; font-size: 14px; color: var(--text-3); }
+    [data-theme="light"] #pairing {
+      --p-bg: #F6F7FA;
+      --p-surface: #FFFFFF;
+      --p-surface-2: #F1F3F8;
+      --p-border: #E3E6EE;
+      --p-border-strong: #CDD2DE;
+      --p-text: #151826;
+      --p-text-2: #535A6E;
+      --p-text-3: #6B7287;
+      --p-primary: #2A6FA6;
+      --p-primary-hover: #235E8E;
+      --p-primary-soft: #E7F1F9;
+      --p-on-primary: #FFFFFF;
+      --p-success: #1B7F46;
+      --p-success-soft: #E5F5EB;
+      --p-warning: #9A6200;
+      --p-warning-soft: #FDF2D9;
+      --p-danger: #C22D39;
+      --p-danger-soft: #FDEBED;
+      --p-focus: #3485C4;
+      --p-shadow: 0 1px 2px rgba(21,24,38,.06);
+    }
+
+    /* Base do #pairing: substitui system-screen defaults */
+    #pairing {
+      padding: 0;
+      align-items: stretch;
+      justify-content: flex-start;
+      text-align: left;
+      font-family: var(--font);
+      background: var(--p-bg);
+      color: var(--p-text);
+      overflow: hidden;
+    }
+
+    /* ---- Faixa da marca (sempre escura) ---- */
+    .pb {
+      background: #0A0712;
+      color: #FFFFFF;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+    }
+    .pb-top { display: flex; align-items: center; justify-content: space-between; }
+    .pb-logo-row { display: flex; align-items: center; }
+    .pb-logo { border-radius: 1.4rem; flex-shrink: 0; }
+    .pb-wordmark { font-weight: 700; color: #FFFFFF; line-height: 1; }
+    .pb-mid { display: flex; flex-direction: column; }
+    .pb-grad { background: var(--p-grad); border-radius: 100px; flex-shrink: 0; }
+    .pb-title { font-weight: 700; color: #FFFFFF; margin: 0; }
+    .pb-desc { color: #B9B5CC; margin: 0; }
+    .pb-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+    .pb-steps li { display: flex; align-items: flex-start; gap: 1.4rem; }
+    .pb-step-n {
+      display: flex; align-items: center; justify-content: center;
+      background: #1A1630; border: 1px solid #3A3558;
+      border-radius: 50%; flex-shrink: 0; font-weight: 700; color: #FFFFFF;
+    }
+    .pb-steps li span:last-child { color: #B9B5CC; padding-top: 0.4rem; }
+    .pb-footer { display: flex; color: #8E89A6; }
+
+    /* ---- Área do formulário ---- */
+    .pf {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      background: var(--p-bg);
+      overflow: hidden;
+    }
+    .pf-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .pf-title { font-weight: 700; color: var(--p-text); margin: 0; text-align: center; }
+    .pf-sub { color: var(--p-text-2); margin: 0; text-align: center; }
+    .pf-hint { color: var(--p-text-3); text-align: center; margin-bottom: 0; }
+
+    /* Input oculto: fonte da verdade para colar e teclado virtual */
+    .p-hidden-input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+      width: 1px; height: 1px;
+      top: 0; left: 0;
+    }
+
+    /* ---- Casas do código ---- */
+    .p-digits {
+      display: flex;
+      align-items: center;
+    }
+    .p-dbox {
+      display: flex; align-items: center; justify-content: center;
+      background: var(--p-surface);
+      border: 2px solid var(--p-border-strong);
+      font-weight: 700;
+      font-family: var(--font);
+      color: var(--p-text);
+      transition: border-color .1s, background .1s, color .1s;
+      position: relative;
+      flex-shrink: 0;
+    }
+    /* Cursor: barra vertical na casa atual */
+    .p-dbox[data-current]::after {
+      content: '';
+      position: absolute;
+      bottom: 2.6rem;
+      left: 50%; transform: translateX(-50%);
+      background: var(--p-focus);
+      border-radius: 2px;
+      animation: p-blink 1s step-start infinite;
+    }
+    @keyframes p-blink { 50% { opacity: 0; } }
+    .p-dbox[data-filled] { border-color: var(--p-text-3); }
+    .p-dbox[data-current] {
+      border-color: var(--p-focus);
+      box-shadow: 0 0 0 4px var(--p-primary-soft);
+    }
+    .p-dbox[data-error] {
+      border-color: var(--p-danger);
+      background: var(--p-danger-soft);
+      color: var(--p-danger);
+    }
+    .p-dbox[data-success] {
+      border-color: var(--p-success);
+      background: var(--p-success-soft);
+      color: var(--p-success);
+    }
+    .p-dsep {
+      background: var(--p-border-strong);
+      flex-shrink: 0;
+      align-self: center;
+    }
+
+    /* ---- Linha de mensagem (altura fixa) ---- */
+    .p-msg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: var(--p-text-3);
+      box-sizing: border-box;
+    }
+    .p-msg[data-kind="error"] {
+      color: var(--p-danger);
+      background: var(--p-danger-soft);
+      border-radius: 1rem;
+      font-weight: 600;
+      padding: 0 1.6rem;
+      gap: 0.8rem;
+    }
+    .p-msg[data-kind="success"] { color: var(--p-success); }
+    .p-msg[data-kind="warn"] { color: var(--p-warning); }
+
+    /* ---- Teclado ---- */
+    .p-keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .key {
+      background: var(--p-surface);
+      border: 1px solid var(--p-border-strong);
+      box-shadow: var(--p-shadow);
+      color: var(--p-text);
+      font-family: var(--font);
+      font-weight: 600;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .key:hover:not(:disabled) { background: var(--p-surface-2); }
+    .key:active:not(:disabled) { background: var(--p-surface-2); }
+    .key:focus-visible { outline: 4px solid var(--p-focus); outline-offset: 3px; }
+    .key:disabled { opacity: .45; cursor: default; }
+    .key-act { color: var(--p-text-2); }
+
+    /* ---- Botão Parear player ---- */
+    .p-btn {
+      display: flex; align-items: center; justify-content: center;
+      background: var(--p-primary);
+      color: var(--p-on-primary);
+      border: none;
+      font-family: var(--font);
+      font-weight: 700;
+      cursor: pointer;
+      transition: background .15s;
+      flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .p-btn:hover:not(:disabled) { background: var(--p-primary-hover); }
+    .p-btn:focus-visible { outline: 4px solid var(--p-focus); outline-offset: 3px; }
+    .p-btn:disabled {
+      background: var(--p-surface-2);
+      color: var(--p-text-3);
+      border: 1px solid var(--p-border);
+      cursor: default;
+    }
+    .p-btn[aria-busy="true"] svg { animation: p-spin 1s linear infinite; }
+    @keyframes p-spin { to { transform: rotate(360deg); } }
+
+    /* ---- Chip de conexão ---- */
+    .p-chip {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      border-radius: 100px;
+      font-weight: 600;
+      flex-shrink: 0;
+      white-space: nowrap;
+      background: var(--p-warning-soft);
+      color: var(--p-warning);
+    }
+    .p-chip[data-connected] {
+      background: var(--p-success-soft);
+      color: var(--p-success);
+    }
+    /* Na faixa escura (portrait), usa sempre cores do tema escuro */
+    .p-chip--pt {
+      --p-success-soft: #13271E;
+      --p-success: #4CC38A;
+      --p-warning-soft: #2B2210;
+      --p-warning: #E8B04A;
+    }
+    .p-chip-dot {
+      width: 1rem; height: 1rem;
+      border-radius: 50%;
+      background: currentColor;
+      flex-shrink: 0;
+    }
+
+    /* ---- Tela de sucesso ---- */
+    .p-success {
+      flex: 1;
+      display: flex !important;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      box-sizing: border-box;
+      background: var(--p-bg);
+      color: var(--p-text);
+    }
+    .p-success[hidden] { display: none !important; }
+    .ps-circle {
+      display: flex; align-items: center; justify-content: center;
+      background: var(--p-success-soft);
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .ps-circle svg { color: var(--p-success); }
+    .ps-title { font-weight: 700; color: var(--p-text); margin: 0; text-align: center; }
+    .ps-names { color: var(--p-text-2); margin: 0; text-align: center; }
+    .ps-code { display: flex; align-items: center; gap: 0.8rem; }
+    .ps-code .p-dbox[data-success] { cursor: default; }
+    .ps-loading {
+      display: flex; align-items: center; justify-content: center;
+      color: var(--p-text-3);
+      text-align: center;
+      margin-bottom: 0;
+    }
+    .ps-spinner {
+      flex-shrink: 0;
+      animation: p-spin 1s linear infinite;
+    }
+    .ps-sep { background: var(--p-border-strong); border-radius: 2px; align-self: center; }
+
+    /* ================================================================
+       LAYOUT LANDSCAPE
+       ================================================================ */
+    @media (orientation: landscape) {
+      #pairing { flex-direction: row; }
+
+      /* Faixa da marca */
+      .pb {
+        width: 76rem;
+        padding: 8.8rem 9.6rem;
+        justify-content: space-between;
+      }
+      .pb-logo { width: 7.2rem; height: 7.2rem; border-radius: 1.4rem; }
+      .pb-logo-row { gap: 1.8rem; }
+      .pb-wordmark { font-size: 3rem; }
+      .pb-mid { gap: 0; }
+      .pb-grad { width: 14rem; height: 0.6rem; margin-bottom: 3.2rem; }
+      .pb-title { font-size: 5.6rem; line-height: 6.4rem; }
+      .pb-desc { font-size: 2.4rem; line-height: 3.6rem; max-width: 54rem; margin-top: 2rem; }
+      .pb-steps { margin-top: 5.6rem; gap: 2.8rem; }
+      .pb-step-n { width: 4rem; height: 4rem; min-width: 4rem; font-size: 1.8rem; }
+      .pb-steps li span:last-child { font-size: 2.2rem; line-height: 3.2rem; }
+      .pb-footer { font-size: 1.8rem; gap: 2.8rem; }
+
+      /* Chip: só no landscape fica na área da direita */
+      .p-chip--pt { display: none !important; }
+      .p-chip--ls {
+        position: absolute;
+        top: 4.8rem; right: 5.6rem;
+        height: 4.4rem;
+        padding: 0 1.6rem;
+        font-size: 1.8rem;
+      }
+
+      /* Área do formulário */
+      .pf { padding: 6.4rem; }
+      .pf-inner { width: 64rem; }
+      .pf-title { font-size: 3.6rem; line-height: 4.4rem; }
+      .pf-sub { font-size: 2.2rem; line-height: 3.2rem; margin-top: 1.2rem; }
+
+      /* Casas */
+      .p-digits { margin-top: 4.8rem; gap: 1.2rem; }
+      .p-dbox {
+        width: 9.6rem; height: 12rem;
+        border-radius: 1.6rem;
+        font-size: 5.6rem;
+        border-width: 2px;
+      }
+      .p-dbox[data-current]::after { width: 3.6rem; height: 0.4rem; bottom: 2.6rem; }
+      .p-dbox[data-current] { box-shadow: 0 0 0 4px var(--p-primary-soft); }
+      .p-dsep { width: 2.8rem; height: 0.6rem; border-radius: 0.3rem; margin: 0 0.8rem; }
+
+      /* Mensagem */
+      .p-msg { height: 7.2rem; font-size: 2rem; width: 100%; margin-top: 0.8rem; }
+
+      /* Teclado */
+      .p-keypad { width: 46.4rem; gap: 1.6rem; margin-top: 0; }
+      .key { height: 9.6rem; border-radius: 1.4rem; font-size: 3.6rem; }
+      .key-act { font-size: 2.2rem; }
+      .key:focus-visible { outline-offset: 3px; }
+
+      /* Botão */
+      .p-btn {
+        width: 46.4rem; height: 9.6rem;
+        border-radius: 1.4rem;
+        font-size: 2.6rem;
+        gap: 1rem;
+        margin-top: 2.4rem;
+      }
+      .p-btn svg { width: 2.8rem; height: 2.8rem; flex-shrink: 0; }
+
+      /* Dica */
+      .pf-hint { font-size: 1.8rem; margin-top: 2.8rem; }
+
+      /* Rodapé de versão só no portrait */
+      .pf-footer-row { display: none; }
+
+      /* Sucesso */
+      .p-success { padding: 4rem 6.4rem; gap: 1.6rem; }
+      .ps-circle { width: 12.8rem; height: 12.8rem; }
+      .ps-circle svg { width: 6.4rem; height: 6.4rem; stroke-width: 2.5; }
+      .ps-title { font-size: 4.4rem; line-height: 5.2rem; margin-top: 0.8rem; }
+      .ps-names { font-size: 2.4rem; line-height: 3.6rem; }
+      .ps-code { gap: 0.8rem; }
+      .ps-code .p-dbox { width: 6.4rem; height: 8rem; border-radius: 1rem; font-size: 3.6rem; }
+      .ps-code .p-dsep { width: 2rem; height: 0.5rem; border-radius: 0.3rem; margin: 0 0.4rem; }
+      .ps-loading { font-size: 2rem; gap: 1rem; }
+      .ps-spinner { width: 2.2rem; height: 2.2rem; }
+    }
+
+    /* ================================================================
+       LAYOUT PORTRAIT
+       ================================================================ */
+    @media (orientation: portrait) {
+      #pairing { flex-direction: column; }
+
+      /* Faixa da marca */
+      .pb {
+        padding: 7.2rem 8.8rem 6.4rem;
+      }
+      .pb-top { margin-bottom: 0; }
+      .pb-logo { width: 7.2rem; height: 7.2rem; border-radius: 1.4rem; }
+      .pb-logo-row { gap: 1.8rem; }
+      .pb-wordmark { font-size: 3rem; }
+      .pb-mid { margin-top: 0; }
+      .pb-grad { width: 14rem; height: 0.6rem; margin-top: 5.6rem; margin-bottom: 2.8rem; }
+      .pb-title { font-size: 6rem; line-height: 6.8rem; }
+      .pb-desc { display: none; }
+      .pb-steps { margin-top: 4rem; gap: 2.2rem; }
+      .pb-step-n { width: 4.4rem; height: 4.4rem; min-width: 4.4rem; font-size: 2rem; }
+      .pb-steps li span:last-child { font-size: 2.4rem; line-height: 3.4rem; }
+      .pb-footer { display: none; }
+
+      /* Chip: só no portrait fica na faixa escura */
+      .p-chip--ls { display: none !important; }
+      .p-chip--pt {
+        height: 4.8rem;
+        padding: 0 1.8rem;
+        font-size: 2rem;
+      }
+
+      /* Área do formulário */
+      .pf {
+        flex: 1;
+        overflow-y: auto;
+        align-items: flex-start;
+        justify-content: flex-start;
+        padding: 7.2rem 8.8rem 5.6rem;
+      }
+      .pf-inner {
+        width: 100%;
+        min-height: 100%;
+        justify-content: center;
+      }
+      .pf-title { font-size: 4rem; line-height: 4.8rem; }
+      .pf-sub { display: none; }
+
+      /* Casas */
+      .p-digits { margin-top: 4.8rem; gap: 1.4rem; }
+      .p-dbox {
+        width: 11.2rem; height: 14rem;
+        border-radius: 1.8rem;
+        font-size: 6.4rem;
+        border-width: 2px;
+      }
+      .p-dbox[data-current]::after { width: 4rem; height: 0.5rem; bottom: 3rem; }
+      .p-dbox[data-current] { box-shadow: 0 0 0 5px var(--p-primary-soft); }
+      .p-dsep { width: 3.2rem; height: 0.6rem; border-radius: 0.3rem; margin: 0 0.6rem; }
+
+      /* Mensagem */
+      .p-msg { height: 9.6rem; font-size: 2.4rem; width: 100%; margin-top: 0.8rem; }
+
+      /* Teclado */
+      .p-keypad { width: 70rem; gap: 2rem; margin-top: 0; }
+      .key { height: 12.8rem; border-radius: 1.8rem; font-size: 4.4rem; }
+      .key-act { font-size: 2.6rem; }
+      .key:focus-visible { outline-offset: 4px; }
+
+      /* Botão */
+      .p-btn {
+        width: 70rem; height: 12.8rem;
+        border-radius: 1.8rem;
+        font-size: 3.2rem;
+        gap: 1.2rem;
+        margin-top: 2.8rem;
+      }
+      .p-btn svg { width: 3.2rem; height: 3.2rem; flex-shrink: 0; }
+
+      /* Dica */
+      .pf-hint { font-size: 2rem; margin-top: 3.2rem; }
+      .pf-footer-row { margin-top: auto; display: flex; gap: 3.2rem; font-size: 2rem; color: var(--p-text-3); padding-top: 4rem; }
+
+      /* Sucesso */
+      .p-success { padding: 6rem 8.8rem; gap: 2rem; }
+      .ps-circle { width: 16rem; height: 16rem; }
+      .ps-circle svg { width: 8rem; height: 8rem; stroke-width: 2.5; }
+      .ps-title { font-size: 5.2rem; line-height: 6rem; margin-top: 0.8rem; }
+      .ps-names { font-size: 2.6rem; line-height: 3.6rem; }
+      .ps-code { gap: 1rem; }
+      .ps-code .p-dbox { width: 7.6rem; height: 9.6rem; border-radius: 1.2rem; font-size: 4.4rem; }
+      .ps-code .p-dsep { width: 2.4rem; height: 0.5rem; border-radius: 0.3rem; margin: 0 0.6rem; }
+      .ps-loading { font-size: 2.4rem; gap: 1.2rem; }
+      .ps-spinner { width: 2.6rem; height: 2.6rem; }
+    }
   </style>
 </head>
 <body>
@@ -155,30 +679,145 @@
 
   <!-- view: pareamento -->
   <div id="pairing" class="system-screen">
-    <img class="logo" src="assets/logo.png" width="72" height="72" alt="Windoor">
-    <div class="brand-bar"></div>
-    <h1>Parear este player</h1>
-    <p class="subtitle">Digite o código mostrado no painel Windoor.</p>
-    <div id="pairing-code"></div>
-    <div id="pairing-message" class="pairing-message"></div>
-    <div id="pairing-keypad">
-      <button class="key" data-digit="1">1</button>
-      <button class="key" data-digit="2">2</button>
-      <button class="key" data-digit="3">3</button>
-      <button class="key" data-digit="4">4</button>
-      <button class="key" data-digit="5">5</button>
-      <button class="key" data-digit="6">6</button>
-      <button class="key" data-digit="7">7</button>
-      <button class="key" data-digit="8">8</button>
-      <button class="key" data-digit="9">9</button>
-      <button class="key" data-action="backspace">Apagar</button>
-      <button class="key" data-digit="0">0</button>
-      <button class="key primary" id="pairing-confirm" data-action="confirm" disabled>Parear</button>
-    </div>
-    <div class="footer">
-      Onde encontro o código? No painel Windoor, em Unidades → Ver código.
-      <div id="pairing-version"></div>
-    </div>
+
+    <!-- Faixa da marca (esquerda no landscape, topo no portrait) -->
+    <aside class="pb">
+      <div class="pb-top">
+        <div class="pb-logo-row">
+          <img src="assets/logo.png" class="pb-logo" alt="" aria-hidden="true">
+          <span class="pb-wordmark">Windoor</span>
+        </div>
+        <!-- Chip de conexão: visível só no portrait (fica na faixa escura) -->
+        <div id="pairing-chip-pt" class="p-chip p-chip--pt" aria-live="polite" aria-atomic="true">
+          <span class="p-chip-dot" aria-hidden="true"></span>
+          <span class="p-chip-txt">Conectando…</span>
+        </div>
+      </div>
+
+      <div class="pb-mid">
+        <div class="pb-grad" aria-hidden="true"></div>
+        <h1 class="pb-title">Parear este player</h1>
+        <p class="pb-desc">Insira o código exibido no painel Windoor para vincular este dispositivo à sua unidade.</p>
+        <ol class="pb-steps">
+          <li>
+            <span class="pb-step-n">1</span>
+            <span>Acesse o painel Windoor e abra a sua unidade.</span>
+          </li>
+          <li>
+            <span class="pb-step-n">2</span>
+            <span>Clique em <strong>Ver código de pareamento</strong>.</span>
+          </li>
+          <li>
+            <span class="pb-step-n">3</span>
+            <span>Digite o código de 6 dígitos aqui.</span>
+          </li>
+        </ol>
+      </div>
+
+      <div class="pb-footer">
+        <span id="pairing-version">Versão 2.0.0</span>
+        <span id="pairing-device">—</span>
+      </div>
+    </aside>
+
+    <!-- Área do formulário (direita no landscape, baixo no portrait) -->
+    <main class="pf">
+      <!-- Chip de conexão: visível só no landscape (posição absoluta no canto) -->
+      <div id="pairing-chip-ls" class="p-chip p-chip--ls" aria-live="polite" aria-atomic="true">
+        <span class="p-chip-dot" aria-hidden="true"></span>
+        <span class="p-chip-txt">Conectando ao servidor…</span>
+      </div>
+
+      <div class="pf-inner">
+        <h2 class="pf-title">Digite o código de pareamento</h2>
+        <p class="pf-sub">Ele aparece no painel, em Unidades &rsaquo; Ver código.</p>
+
+        <!-- Input oculto: fonte da verdade para colar e teclado virtual do Android -->
+        <input id="pairing-input" class="p-hidden-input"
+               type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+               aria-label="Código de pareamento" tabindex="-1">
+
+        <!-- Casas do código -->
+        <div id="pairing-digits" class="p-digits" role="group" aria-label="Código de 6 dígitos">
+          <div class="p-dbox" data-idx="0"></div>
+          <div class="p-dbox" data-idx="1"></div>
+          <div class="p-dbox" data-idx="2"></div>
+          <div class="p-dsep" aria-hidden="true"></div>
+          <div class="p-dbox" data-idx="3"></div>
+          <div class="p-dbox" data-idx="4"></div>
+          <div class="p-dbox" data-idx="5"></div>
+        </div>
+
+        <!-- Linha de mensagem (altura fixa para não deslocar o layout) -->
+        <div id="pairing-message" class="p-msg" role="alert" aria-live="assertive" aria-atomic="true"></div>
+
+        <!-- Teclado numérico na tela -->
+        <div id="pairing-keypad" class="p-keypad" role="group" aria-label="Teclado numérico">
+          <button class="key" data-digit="1" tabindex="-1">1</button>
+          <button class="key" data-digit="2" tabindex="-1">2</button>
+          <button class="key" data-digit="3" tabindex="-1">3</button>
+          <button class="key" data-digit="4" tabindex="-1">4</button>
+          <button class="key" data-digit="5" tabindex="0">5</button>
+          <button class="key" data-digit="6" tabindex="-1">6</button>
+          <button class="key" data-digit="7" tabindex="-1">7</button>
+          <button class="key" data-digit="8" tabindex="-1">8</button>
+          <button class="key" data-digit="9" tabindex="-1">9</button>
+          <button class="key key-act" data-action="clear" tabindex="-1">Limpar</button>
+          <button class="key" data-digit="0" tabindex="-1">0</button>
+          <button class="key key-act" data-action="backspace" aria-label="Apagar último número" tabindex="-1">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path>
+              <line x1="18" y1="9" x2="12" y2="15"></line>
+              <line x1="12" y1="9" x2="18" y2="15"></line>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Botão Parear player -->
+        <button id="pairing-confirm" class="p-btn" disabled tabindex="-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+          Parear player
+        </button>
+
+        <p class="pf-hint">Use as setas do controle remoto e OK, ou toque na tela.</p>
+
+        <!-- Rodapé de versão/dispositivo: visível só no portrait (inline no form) -->
+        <div class="pf-footer-row" aria-hidden="true">
+          <span id="pairing-version-pt"></span>
+          <span id="pairing-device-pt"></span>
+        </div>
+      </div>
+    </main>
+
+    <!-- Tela de sucesso: substitui .pf quando o pareamento é confirmado -->
+    <section id="pairing-success" class="p-success" hidden role="status" aria-live="polite">
+      <div class="ps-circle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+      <p class="ps-title">Player pareado</p>
+      <p id="ps-names" class="ps-names"></p>
+      <div id="ps-code" class="ps-code" role="group" aria-label="Código confirmado">
+        <div class="p-dbox" data-success data-idx="0"></div>
+        <div class="p-dbox" data-success data-idx="1"></div>
+        <div class="p-dbox" data-success data-idx="2"></div>
+        <div class="p-dsep ps-sep" aria-hidden="true"></div>
+        <div class="p-dbox" data-success data-idx="3"></div>
+        <div class="p-dbox" data-success data-idx="4"></div>
+        <div class="p-dbox" data-success data-idx="5"></div>
+      </div>
+      <p class="ps-loading">
+        <svg class="ps-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" stroke-opacity=".25"></circle>
+          <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+        </svg>
+        Baixando a playlist. A exibição começa em instantes.
+      </p>
+    </section>
   </div>
 
   <div id="status">conectando...</div>

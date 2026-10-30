@@ -517,6 +517,8 @@
       startConnectivityMonitor();
       refreshMessage();
 
+      el('pairing-confirm')?.addEventListener('click', submit);
+
       // Foco inicial na tecla 5
       const btn5 = keypadButton('5', null);
       if (btn5) setTimeout(() => btn5.focus(), 50);

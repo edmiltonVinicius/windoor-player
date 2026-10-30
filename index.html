@@ -119,7 +119,7 @@
     .brand-bar { width: 120px; height: 5px; background: var(--brand); border-radius: 3px; margin: 16px 0 20px; }
     .system-screen .logo { border-radius: 12px; }
     .system-screen h1 { font-size: 32px; font-weight: 700; margin: 0 0 8px; }
-    .system-screen p { font-size: 18px; color: var(--text-2); max-width: 560px; line-height: 1.45; margin: 0; }
+    .system-screen p { font-size: 16px; color: var(--text-2); max-width: 560px; line-height: 1.45; margin: 0; margin-top: 5px; }
 
     /* ================================================================
        NOVA TELA DE PAREAMENTO
@@ -257,7 +257,7 @@
     }
     .pf-title { font-weight: 700; color: var(--p-text); margin: 0; text-align: center; }
     .pf-sub { color: var(--p-text-2); margin: 0; text-align: center; }
-    .pf-hint { color: var(--p-text-3); text-align: center; margin-bottom: 0; }
+    .pf-hint { color: var(--p-text-3); text-align: center; margin-bottom: 0; margin-top: 20px !important;  font-size: 14px !important;}
 
     /* Input oculto: fonte da verdade para colar e teclado virtual */
     .p-hidden-input {
@@ -332,9 +332,10 @@
       font-weight: 600;
       padding: 0 1.6rem;
       gap: 0.8rem;
+      margin: 10px 0;
     }
-    .p-msg[data-kind="success"] { color: var(--p-success); }
-    .p-msg[data-kind="warn"] { color: var(--p-warning); }
+    .p-msg[data-kind="success"] { color: var(--p-success); margin: 10px 0; }
+    .p-msg[data-kind="warn"] { color: var(--p-warning); margin: 10px 0; }
 
     /* ---- Teclado ---- */
     .p-keypad {
@@ -492,7 +493,7 @@
       /* Casas */
       .p-digits { margin-top: 4.8rem; gap: 1.2rem; }
       .p-dbox {
-        width: 9.6rem; height: 12rem;
+        width: 9.0rem; height: 10rem;
         border-radius: 1.6rem;
         font-size: 5.6rem;
         border-width: 2px;
@@ -502,19 +503,19 @@
       .p-dsep { width: 2.8rem; height: 0.6rem; border-radius: 0.3rem; margin: 0 0.8rem; }
 
       /* Mensagem */
-      .p-msg { height: 7.2rem; font-size: 2rem; width: 100%; margin-top: 0.8rem; }
+      .p-msg { height: 6rem; font-size: 1.7rem; width: 75%; margin: 15px 0 !important; }
 
       /* Teclado */
-      .p-keypad { width: 46.4rem; gap: 1.6rem; margin-top: 0; }
-      .key { height: 9.6rem; border-radius: 1.4rem; font-size: 3.6rem; }
+      .p-keypad { width: 43rem; gap: 1.6rem; margin-top: 0; }
+      .key { height: 8.6rem; border-radius: 1.4rem; font-size: 3.6rem; width: 100px; }
       .key-act { font-size: 2.2rem; }
       .key:focus-visible { outline-offset: 3px; }
 
       /* Botão */
       .p-btn {
-        width: 46.4rem; height: 9.6rem;
+        width: 43rem; height: 8rem;
         border-radius: 1.4rem;
-        font-size: 2.6rem;
+        font-size: 2.3rem;
         gap: 1rem;
         margin-top: 2.4rem;
       }
@@ -548,6 +549,7 @@
       /* Faixa da marca */
       .pb {
         padding: 7.2rem 8.8rem 6.4rem;
+        padding-bottom: 40px;
       }
       .pb-top { margin-bottom: 0; }
       .pb-logo { width: 7.2rem; height: 7.2rem; border-radius: 1.4rem; }
@@ -555,11 +557,11 @@
       .pb-wordmark { font-size: 3rem; }
       .pb-mid { margin-top: 0; }
       .pb-grad { width: 14rem; height: 0.6rem; margin-top: 5.6rem; margin-bottom: 2.8rem; }
-      .pb-title { font-size: 6rem; line-height: 6.8rem; }
+      .pb-title { font-size: 6rem !important; line-height: 6.8rem; margin-top: 15px !important; margin-bottom: 4px !important; }
       .pb-desc { display: none; }
-      .pb-steps { margin-top: 4rem; gap: 2.2rem; }
+      .pb-steps { margin-top: 4rem; gap: 3.5rem; }
       .pb-step-n { width: 4.4rem; height: 4.4rem; min-width: 4.4rem; font-size: 2rem; }
-      .pb-steps li span:last-child { font-size: 2.4rem; line-height: 3.4rem; }
+      .pb-steps li span:last-child { font-size: 2.6rem; line-height: 3.4rem; }
       .pb-footer { display: none; }
 
       /* Chip: só no portrait fica na faixa escura */
@@ -599,7 +601,7 @@
       .p-dsep { width: 3.2rem; height: 0.6rem; border-radius: 0.3rem; margin: 0 0.6rem; }
 
       /* Mensagem */
-      .p-msg { height: 9.6rem; font-size: 2.4rem; width: 100%; margin-top: 0.8rem; }
+      .p-msg { height: 9.6rem; font-size: 2.4rem; width: 85%; margin-top: 0.8rem; }
 
       /* Teclado */
       .p-keypad { width: 70rem; gap: 2rem; margin-top: 0; }
@@ -618,7 +620,7 @@
       .p-btn svg { width: 3.2rem; height: 3.2rem; flex-shrink: 0; }
 
       /* Dica */
-      .pf-hint { font-size: 2rem; margin-top: 3.2rem; }
+      .pf-hint { font-size: 3rem !important; margin-top: 3.2rem; }
       .pf-footer-row { margin-top: auto; display: flex; gap: 3.2rem; font-size: 2rem; color: var(--p-text-3); padding-top: 4rem; }
 
       /* Sucesso */
@@ -715,8 +717,8 @@
       </div>
 
       <div class="pb-footer">
-        <span id="pairing-version">Versão 2.0.0</span>
-        <span id="pairing-device">—</span>
+        <span id="pairing-version">Windoor</span>
+        <span id="pairing-device"> — Todos os direitos reservados</span>
       </div>
     </aside>
 

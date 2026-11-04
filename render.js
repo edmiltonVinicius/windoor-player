@@ -11,9 +11,18 @@ WindoorPlayer.render = (function () {
   let feed = null;
   /** Estado por zona: elemento, índice, timer e o que está no ar (proof of play). */
   const zoneStates = new Map();
-  let infoBarTimer = null;
-  let infoBarIndex = 0;
   let lastTickMs = Date.now();
+
+  // ---------- barra de informações: estado ----------
+  let infoBarRotationTimer = null;
+  let infoBarClockTimer = null;
+  let infoBarClockShowDate = false;
+  let infoBarQuotes = null;
+  let infoBarAppliedKey = null;
+  const infoBarImageStatus = new Map();   // url -> 'pending' | 'ready' | 'failed'
+  const infoBarImageBlobUrls = new Map(); // url -> blob: URL já resolvida
+  const infoBarSkipLogAt = new Map();     // `${type}:${id}:${reason}` -> timestamp do último log
+  let infoBarEligibleCount = 0;
 
   function showView(name) {
     VIEWS.forEach((view) => {
@@ -202,39 +211,221 @@ WindoorPlayer.render = (function () {
 
   // ---------- barra de informações ----------
 
-  function renderInfoBar(infoBar) {
-    const bar = document.getElementById('info-bar');
-    const messageEl = document.getElementById('info-bar-message');
-    if (!bar || !messageEl) return;
+  function reducedMotion() {
+    return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
 
-    if (infoBarTimer) { clearInterval(infoBarTimer); infoBarTimer = null; }
+  /** Troca o conteúdo de `el` com um fade de 300 ms (instantâneo com `prefers-reduced-motion`). */
+  function fadeSwap(el, apply) {
+    if (!el) return;
+    if (reducedMotion()) { apply(); return; }
+    el.classList.add('info-bar-fading');
+    setTimeout(() => {
+      apply();
+      el.classList.remove('info-bar-fading');
+    }, WindoorPlayer.config.INFO_BAR_TRANSITION_MS);
+  }
 
-    if (!infoBar.enabled) {
-      bar.style.display = 'none';
-      return;
-    }
-    bar.style.display = 'flex';
+  /** No máximo um log por item por hora, para não inundar (seção 6.5). */
+  function logInfoBarSkip(item, reason) {
+    const key = `${item.type}:${item.id}:${reason}`;
+    const now = Date.now();
+    const last = infoBarSkipLogAt.get(key) || 0;
+    if (now - last < 60 * 60 * 1000) return;
+    infoBarSkipLogAt.set(key, now);
+    WindoorPlayer.logger.info('Item da barra de informações pulado', { itemId: item.id, type: item.type, reason });
+  }
 
-    const messages = infoBar.messages;
-    infoBarIndex = 0;
-    messageEl.textContent = messages[0] || '';
+  function ensureInfoBarImageRequested(item) {
+    if (infoBarImageStatus.has(item.url)) return;
+    infoBarImageStatus.set(item.url, 'pending');
+    WindoorPlayer.cache.getCachedImage(item.url)
+      .then((blobUrl) => {
+        infoBarImageBlobUrls.set(item.url, blobUrl);
+        infoBarImageStatus.set(item.url, 'ready');
+      })
+      .catch((error) => {
+        infoBarImageStatus.set(item.url, 'failed');
+        if (WindoorPlayer.logger) {
+          WindoorPlayer.logger.error('Falha ao baixar imagem da barra de informações', {
+            itemId: item.id, url: item.url, error: error.message,
+          });
+        }
+      });
+  }
 
-    if (messages.length > 1) {
-      infoBarTimer = setInterval(() => {
-        infoBarIndex = (infoBarIndex + 1) % messages.length;
-        messageEl.textContent = messages[infoBarIndex];
-      }, infoBar.rotationSeconds * 1000);
+  function isInfoBarImageReady(url) { return infoBarImageStatus.get(url) === 'ready'; }
+
+  /** Itens elegíveis agora, disparando o download de imagens novas e logando os pulados. */
+  function eligibleInfoBarItems(items, now) {
+    items.filter((item) => item.type === 'image').forEach(ensureInfoBarImageRequested);
+
+    const eligible = [];
+    items.forEach((item) => {
+      if (WindoorPlayer.feed.isInfoBarItemEligible(item, now, infoBarQuotes, isInfoBarImageReady)) {
+        eligible.push(item);
+        return;
+      }
+      if (item.type === 'image') {
+        const expired = item.validUntil && Date.parse(item.validUntil) <= now.getTime();
+        logInfoBarSkip(item, expired ? 'expired_image' : 'image_failed');
+      } else if (item.type === 'quotes') {
+        logInfoBarSkip(item, 'stale_quotes');
+      }
+    });
+    return eligible;
+  }
+
+  function renderInfoBarQuotesContent(item) {
+    const wrap = document.createElement('div');
+    wrap.className = 'info-bar-quotes';
+    const bySymbol = new Map(((infoBarQuotes && infoBarQuotes.items) || []).map((q) => [q.symbol, q]));
+
+    item.symbols.forEach((symbol) => {
+      const quote = bySymbol.get(symbol);
+      if (!quote) return; // moeda pedida que não veio no cache é omitida
+
+      const bid = Number(quote.bid);
+      const changePct = Number(quote.changePct);
+      const direction = changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat';
+      const arrow = direction === 'up' ? '▲' : direction === 'down' ? '▼' : '';
+
+      const span = document.createElement('span');
+      span.className = 'info-bar-quote';
+      span.innerHTML =
+        `<em>${symbol}</em>` +
+        `${Number.isFinite(bid) ? bid.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'}` +
+        `<b class="info-bar-change ${direction}">${arrow}${Number.isFinite(changePct) ? Math.abs(changePct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0'}%</b>`;
+      wrap.appendChild(span);
+    });
+
+    return wrap;
+  }
+
+  function renderInfoBarCenterContent(item) {
+    const centerEl = document.getElementById('info-bar-center');
+    if (!centerEl) return;
+    centerEl.textContent = '';
+    if (!item) return;
+
+    if (item.type === 'text') {
+      const span = document.createElement('span');
+      span.className = 'info-bar-text';
+      span.textContent = item.text;
+      centerEl.appendChild(span);
+    } else if (item.type === 'image') {
+      const img = document.createElement('img');
+      img.className = 'info-bar-image';
+      img.alt = '';
+      img.src = infoBarImageBlobUrls.get(item.url) || item.url;
+      centerEl.appendChild(img);
+    } else if (item.type === 'quotes') {
+      centerEl.appendChild(renderInfoBarQuotesContent(item));
     }
   }
 
-  function startClock() {
-    const el = document.getElementById('info-bar-clock');
-    if (!el) return;
-    const update = () => {
-      el.textContent = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    };
-    update();
-    setInterval(update, 15000);
+  function showInfoBarItem(item) {
+    fadeSwap(document.getElementById('info-bar-center'), () => renderInfoBarCenterContent(item));
+  }
+
+  /**
+   * Rodízio do centro (seção 6.3): a cada `rotationSeconds`, reavalia os itens elegíveis
+   * (imagem pode ter acabado de baixar, cotação pode ter ficado velha) e avança. Sem
+   * nenhum elegível, o centro fica vazio — sem mensagem de erro na tela.
+   */
+  function startInfoBarRotation(infoBar) {
+    if (infoBarRotationTimer) { clearInterval(infoBarRotationTimer); infoBarRotationTimer = null; }
+
+    const items = infoBar.items || [];
+    const now = new Date();
+    let eligible = eligibleInfoBarItems(items, now);
+    let index = 0;
+
+    infoBarEligibleCount = eligible.length;
+    const appliedKey = `${items.length}:${eligible.length}`;
+    if (appliedKey !== infoBarAppliedKey) {
+      infoBarAppliedKey = appliedKey;
+      WindoorPlayer.logger.info('Configuração da barra de informações aplicada', {
+        itemsCount: items.length, eligibleCount: eligible.length,
+      });
+    }
+
+    showInfoBarItem(eligible[0] || null);
+    if (eligible.length <= 1) return;
+
+    const ms = Math.max(1, infoBar.rotationSeconds) * 1000;
+    infoBarRotationTimer = setInterval(() => {
+      eligible = eligibleInfoBarItems(items, new Date());
+      if (eligible.length === 0) { showInfoBarItem(null); return; }
+      index = (index + 1) % eligible.length;
+      showInfoBarItem(eligible[index]);
+    }, ms);
+  }
+
+  function renderInfoBar(infoBar) {
+    const bar = document.getElementById('info-bar');
+    if (!bar) return;
+
+    if (infoBarRotationTimer) { clearInterval(infoBarRotationTimer); infoBarRotationTimer = null; }
+
+    if (!infoBar.enabled) {
+      bar.style.display = 'none';
+      renderInfoBarCenterContent(null);
+      return;
+    }
+    bar.style.display = 'flex';
+    startInfoBarRotation(infoBar);
+  }
+
+  /** Cotações recém-buscadas (seção 3.3/6.4): reaplica o rodízio sem reiniciar a barra. */
+  function setInfoBarQuotes(quotes) {
+    infoBarQuotes = quotes;
+    if (feed && feed.infoBar && feed.infoBar.enabled) startInfoBarRotation(feed.infoBar);
+  }
+
+  // ---------- barra de informações: horário/data (independentes do rodízio do centro) ----------
+
+  function formatInfoBarTime(date) {
+    try {
+      return new Intl.DateTimeFormat('pt-BR', {
+        hour: '2-digit', minute: '2-digit', timeZone: WindoorPlayer.config.INFO_BAR_TIMEZONE,
+      }).format(date);
+    } catch (_) { return '--:--'; }
+  }
+
+  function formatInfoBarDate(date) {
+    try {
+      const parts = new Intl.DateTimeFormat('pt-BR', {
+        day: '2-digit', month: 'short', timeZone: WindoorPlayer.config.INFO_BAR_TIMEZONE,
+      }).formatToParts(date);
+      const day = (parts.find((p) => p.type === 'day') || {}).value || '--';
+      const month = ((parts.find((p) => p.type === 'month') || {}).value || '--').replace('.', '');
+      return `${day}/${month}`;
+    } catch (_) { return '--/--'; }
+  }
+
+  function applyInfoBarLeft(showDate) {
+    const clockGroup = document.getElementById('info-bar-clock-group');
+    const dateGroup = document.getElementById('info-bar-date-group');
+    const clockText = document.getElementById('info-bar-clock');
+    const dateText = document.getElementById('info-bar-date');
+    if (!clockGroup || !dateGroup) return;
+    const now = new Date();
+    if (clockText) clockText.textContent = formatInfoBarTime(now);
+    if (dateText) dateText.textContent = formatInfoBarDate(now);
+    clockGroup.style.display = showDate ? 'none' : 'flex';
+    dateGroup.style.display = showDate ? 'flex' : 'none';
+  }
+
+  /** Alterna horário ⇄ data a cada 5 s, nunca os dois juntos, no fuso da unidade. */
+  function startInfoBarClock() {
+    if (infoBarClockTimer) clearInterval(infoBarClockTimer);
+    infoBarClockShowDate = false;
+    fadeSwap(document.getElementById('info-bar-left'), () => applyInfoBarLeft(infoBarClockShowDate));
+    infoBarClockTimer = setInterval(() => {
+      infoBarClockShowDate = !infoBarClockShowDate;
+      fadeSwap(document.getElementById('info-bar-left'), () => applyInfoBarLeft(infoBarClockShowDate));
+    }, WindoorPlayer.config.INFO_BAR_CLOCK_TICK_MS);
   }
 
   // ---------- entrada pública ----------
@@ -284,14 +475,26 @@ WindoorPlayer.render = (function () {
 
   function lastTickAt() { return lastTickMs; }
 
+  /** Resumo para o heartbeat diagnosticar "barra sem itens na tela" (seção 6.5). */
+  function infoBarSummary() {
+    const bar = feed && feed.infoBar;
+    return {
+      enabled: !!(bar && bar.enabled),
+      items: bar ? (bar.items || []).length : 0,
+      eligible: infoBarEligibleCount,
+    };
+  }
+
   /** Compatibilidade com o watchdog, que só precisa saber que o loop está vivo. */
-  function startLoop() { startClock(); }
+  function startLoop() { startInfoBarClock(); }
 
   return {
     setFeed,
     setStatus,
+    setInfoBarQuotes,
     startLoop,
     currentContent,
+    infoBarSummary,
     showFallback,
     hideFallback,
     showView,

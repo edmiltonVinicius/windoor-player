@@ -28,6 +28,11 @@ window.WindoorPlayer = window.WindoorPlayer || {};
     TRANSITION_MS: 1000,
     HEARTBEAT_INTERVAL_MS: 30000,
     REFRESH_INTERVAL_MS: 5 * 60 * 1000,
+    // Barra de informações: horário/data alternam a cada 5 s; fuso fixo até existir `unit.timezone`.
+    INFO_BAR_CLOCK_TICK_MS: 5000,
+    INFO_BAR_TIMEZONE: 'America/Sao_Paulo',
+    INFO_BAR_TRANSITION_MS: 300,
+    INFO_BAR_QUOTES_REFRESH_MS: 15 * 60 * 1000,
     // Túnel ngrok (plano grátis) injeta uma página de aviso em requests de navegador; o header a evita.
     // Só entra quando a API aponta para ngrok (desenvolvimento).
     EXTRA_HEADERS: /ngrok/i.test(apiUrl) ? { 'ngrok-skip-browser-warning': 'true' } : {},

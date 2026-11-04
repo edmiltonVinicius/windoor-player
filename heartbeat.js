@@ -23,6 +23,7 @@ WindoorPlayer.heartbeat = (function () {
         // O item traz o id do conteúdo em `contentId`; `id` é o id do item na playlist.
         lastContentId: content ? content.contentId || content.id : null,
         memoryUsageMb: memoryUsageMb(),
+        infoBar: render && render.infoBarSummary ? render.infoBarSummary() : undefined,
       });
     } catch (error) {
       // Sem internet é esperado às vezes — não vira erro ruidoso.

@@ -23,7 +23,32 @@
     await pairing.run();
   }
 
-  // 2) estado inicial: API → cache local
+  // 2) cotações da barra de informações: cache local primeiro, depois a API.
+  // `GET /info-bar/quotes` ainda não existe no backend (fonte de cotações é uma
+  // pendência de produto) — falha aqui é esperada e só mantém o cache como está.
+  async function loadQuotesFromCache() {
+    try {
+      const cached = await cache.readQuotes();
+      if (cached) render.setInfoBarQuotes(cached);
+    } catch (_) { /* sem IndexedDB, segue sem cotações */ }
+  }
+
+  async function refreshQuotes() {
+    try {
+      const data = await api.get('/info-bar/quotes');
+      if (data && Array.isArray(data.items)) {
+        const quotes = { items: data.items, fetchedAt: Date.now() };
+        await cache.saveQuotes(quotes);
+        render.setInfoBarQuotes(quotes);
+      }
+    } catch (error) {
+      logger.info('Cotações da barra de informações não atualizadas (serviço ainda não disponível)', {
+        error: error.message, code: error.code,
+      });
+    }
+  }
+
+  // 4) estado inicial: API → cache local
   async function loadInitial() {
     try {
       const normalized = feed.normalizeFeed(await api.get('/player/contents'));
@@ -44,7 +69,7 @@
     }
   }
 
-  // 3) tempo real
+  // 5) tempo real
   function connectSocket() {
     if (typeof io !== 'function') {
       logger.warn('socket.io indisponível; player segue só com HTTP');
@@ -70,7 +95,7 @@
     commands.start(socket);
   }
 
-  // 4) rede de segurança: re-busca periódica, também usada na reconexão e na
+  // 6) rede de segurança: re-busca periódica, também usada na reconexão e na
   // tela de player desativado.
   async function refresh() {
     try {
@@ -95,11 +120,14 @@
     }, 60000);
   }
 
+  await loadQuotesFromCache();
   await loadInitial();
   connectSocket();
   render.startLoop();
   heartbeat.start();
   setInterval(refresh, config.REFRESH_INTERVAL_MS);
+  refreshQuotes();
+  setInterval(refreshQuotes, config.INFO_BAR_QUOTES_REFRESH_MS);
   if (wakelock) wakelock.start();
   if (watchdog) watchdog.start();          // só aqui: o loop de conteúdo já começou
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js');

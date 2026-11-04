@@ -31,7 +31,12 @@ const FEED_FULLSCREEN = {
   infoBar: {
     enabled: true,
     rotationSeconds: 5,
-    messages: [{ id: 'm1', text: 'Reunião de condomínio quinta, 19h' }, { id: 'm2', text: 'Manutenção do elevador social sábado' }],
+    items: [
+      { id: 'ib-1', type: 'text', text: 'Reunião de condomínio quinta, 19h' },
+      { id: 'ib-2', type: 'image', contentId: 'content-90', url: 'https://picsum.photos/id/1011/750/56', validUntil: null },
+      { id: 'ib-3', type: 'quotes', symbols: ['USD', 'EUR'] },
+      { id: 'ib-4', type: 'text', text: 'Manutenção do elevador social sábado' },
+    ],
   },
   skippedItems: 0,
 };
@@ -95,6 +100,17 @@ const server = http.createServer(async (req, res) => {
   if (route === 'GET /v1/player/contents') {
     const split = /layout=split/.test(req.url || '');
     return ok(res, split ? FEED_SPLIT : FEED_FULLSCREEN);
+  }
+
+  // Simula GET /info-bar/quotes (seção 3.1 da doc) — ainda não existe no backend real.
+  if (route.startsWith('GET /v1/info-bar/quotes')) {
+    return ok(res, {
+      items: [
+        { symbol: 'USD', bid: 5.42, changePct: 0.3, sourceUpdatedAt: new Date().toISOString() },
+        { symbol: 'EUR', bid: 6.21, changePct: -0.1, sourceUpdatedAt: new Date().toISOString() },
+      ],
+      fetchedAt: new Date().toISOString(),
+    });
   }
 
   if (route === 'POST /v1/player/heartbeat' || route === 'POST /v1/player/proof-of-play' || route === 'POST /v1/player/logs') {

@@ -6,8 +6,12 @@
 (function (root) {
   const LAYOUTS = { fullscreen: ['full'], split_top_bottom: ['top', 'bottom'] };
   const TYPES = ['image', 'video'];
+  const QUOTE_SYMBOLS = ['USD', 'EUR', 'GBP', 'ARS'];
+  const INFO_BAR_MAX_ITEMS = 10;
+  const INFO_BAR_MAX_QUOTE_SYMBOLS = 2;
+  const INFO_BAR_QUOTES_STALE_MS = 6 * 60 * 60 * 1000;
 
-  const DEFAULT_INFO_BAR = { enabled: false, rotationSeconds: 10, messages: [] };
+  const DEFAULT_INFO_BAR = { enabled: false, rotationSeconds: 10, items: [] };
 
   /** Vencido = tem validade e ela já passou. Sem validade, vale para sempre. */
   function isPlayable(item, now) {
@@ -31,16 +35,71 @@
     };
   }
 
+  /** Normaliza um item do centro; `null` quando o tipo é desconhecido ou o item é inútil. */
+  function normalizeInfoBarItem(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const id = String(raw.id || '');
+    if (!id) return null;
+
+    if (raw.type === 'text') {
+      const text = String(raw.text || '').trim();
+      return text ? { id, type: 'text', text } : null;
+    }
+
+    if (raw.type === 'image') {
+      const url = String(raw.url || '');
+      if (!url) return null;
+      return { id, type: 'image', contentId: String(raw.contentId || id), url, validUntil: raw.validUntil || null };
+    }
+
+    if (raw.type === 'quotes') {
+      const symbols = (Array.isArray(raw.symbols) ? raw.symbols : [])
+        .filter((s) => QUOTE_SYMBOLS.includes(s))
+        .slice(0, INFO_BAR_MAX_QUOTE_SYMBOLS);
+      return symbols.length > 0 ? { id, type: 'quotes', symbols } : null;
+    }
+
+    return null;
+  }
+
   function normalizeInfoBar(raw) {
-    if (!raw || typeof raw !== 'object') return { ...DEFAULT_INFO_BAR };
+    if (!raw || typeof raw !== 'object') return { ...DEFAULT_INFO_BAR, items: [] };
     const rotation = Number(raw.rotationSeconds);
+    const items = (Array.isArray(raw.items) ? raw.items : [])
+      .map(normalizeInfoBarItem)
+      .filter(Boolean)
+      .slice(0, INFO_BAR_MAX_ITEMS);
     return {
       enabled: Boolean(raw.enabled),
       rotationSeconds: Number.isFinite(rotation) && rotation > 0 ? Math.round(rotation) : 10,
-      messages: (Array.isArray(raw.messages) ? raw.messages : [])
-        .map((message) => String((message && message.text) || '').trim())
-        .filter(Boolean),
+      items,
     };
+  }
+
+  /**
+   * `type: image` elegível quando não vencido; `quotes`, quando o cache tem pelo menos
+   * uma das moedas pedidas e não passou de 6 h desde a última busca do servidor. Imagem
+   * também depende de já ter sido baixada (`imageReady`, mantido pelo render.js).
+   */
+  function isInfoBarItemEligible(item, now, quotes, imageReady) {
+    const ref = (now || new Date()).getTime();
+    if (!item) return false;
+    if (item.type === 'text') return true;
+    if (item.type === 'image') {
+      if (item.validUntil) {
+        const limit = Date.parse(item.validUntil);
+        if (!Number.isNaN(limit) && limit <= ref) return false;
+      }
+      return imageReady ? !!imageReady(item.url) : true;
+    }
+    if (item.type === 'quotes') {
+      if (!quotes || !Array.isArray(quotes.items)) return false;
+      const fetchedAt = Number(quotes.fetchedAt);
+      if (!Number.isFinite(fetchedAt) || ref - fetchedAt > INFO_BAR_QUOTES_STALE_MS) return false;
+      const available = new Set(quotes.items.map((q) => q && q.symbol));
+      return item.symbols.some((symbol) => available.has(symbol));
+    }
+    return false;
   }
 
   /**
@@ -91,17 +150,33 @@
     };
   }
 
-  /** Todas as URLs de imagem do feed (vídeo não é pré-carregado: tocam direto da rede). */
+  /**
+   * Todas as URLs de imagem do feed, playlists + barra de informações (vídeo não é
+   * pré-carregado: toca direto da rede).
+   */
   function imageUrls(feed) {
     const zones = (feed && feed.zones) || [];
-    return zones.flatMap((zone) => (zone.items || []).filter((i) => i.type === 'image').map((i) => i.url));
+    const fromZones = zones.flatMap((zone) => (zone.items || []).filter((i) => i.type === 'image').map((i) => i.url));
+    const barItems = (feed && feed.infoBar && feed.infoBar.items) || [];
+    const fromBar = barItems.filter((i) => i.type === 'image').map((i) => i.url);
+    return [...fromZones, ...fromBar];
   }
 
   function totalItems(feed) {
     return ((feed && feed.zones) || []).reduce((total, zone) => total + (zone.items || []).length, 0);
   }
 
-  const api = { normalizeFeed, normalizeInfoBar, isPlayable, imageUrls, totalItems, LAYOUTS };
+  const api = {
+    normalizeFeed,
+    normalizeInfoBar,
+    normalizeInfoBarItem,
+    isInfoBarItemEligible,
+    isPlayable,
+    imageUrls,
+    totalItems,
+    LAYOUTS,
+    QUOTE_SYMBOLS,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else { root.WindoorPlayer = root.WindoorPlayer || {}; root.WindoorPlayer.feed = api; }
 })(typeof window !== 'undefined' ? window : globalThis);

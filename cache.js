@@ -2,7 +2,9 @@ window.WindoorPlayer = window.WindoorPlayer || {};
 
 WindoorPlayer.cache = (function () {
   const DB_NAME = 'windoor-player';
+  const DB_VERSION = 2;
   const STORE = 'contents';
+  const QUOTES_STORE = 'quotes';
   const IMAGE_CACHE = 'windoor-images-v1';
 
   // Resquícios do MVP single-tenant (totem-*): não há migração de dados,
@@ -19,10 +21,11 @@ WindoorPlayer.cache = (function () {
 
   function openDB() {
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(QUOTES_STORE)) db.createObjectStore(QUOTES_STORE, { keyPath: 'id' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -53,6 +56,32 @@ WindoorPlayer.cache = (function () {
     return new Promise((resolve) => {
       const tx = db.transaction(STORE, 'readonly');
       const req = tx.objectStore(STORE).get(FEED_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  }
+
+  // Última cotação conhecida da barra de informações: `{ items: [{symbol,bid,changePct}], fetchedAt }`.
+  // Guardada à parte do feed porque é atualizada pelo servidor a cada 15 min, independente
+  // de mudanças no conteúdo ou na configuração da barra.
+  const QUOTES_KEY = 'quotes';
+
+  async function saveQuotes(quotes) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(QUOTES_STORE, 'readwrite');
+      tx.objectStore(QUOTES_STORE).put({ ...quotes, id: QUOTES_KEY });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+
+  async function readQuotes() {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(QUOTES_STORE, 'readonly');
+      const req = tx.objectStore(QUOTES_STORE).get(QUOTES_KEY);
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => resolve(null);
     });
@@ -99,5 +128,18 @@ WindoorPlayer.cache = (function () {
     );
   }
 
-  return { saveFeed, readFeed, getCachedImage, preloadImages, pruneImages, DB_NAME, STORE, IMAGE_CACHE, FEED_KEY };
+  return {
+    saveFeed,
+    readFeed,
+    saveQuotes,
+    readQuotes,
+    getCachedImage,
+    preloadImages,
+    pruneImages,
+    DB_NAME,
+    STORE,
+    QUOTES_STORE,
+    IMAGE_CACHE,
+    FEED_KEY,
+  };
 })();

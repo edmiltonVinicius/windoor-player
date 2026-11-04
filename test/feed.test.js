@@ -84,14 +84,81 @@ test('duração inválida cai no padrão de 10s', () => {
   assert.deepEqual(result.zones[0].items.map((i) => i.durationSeconds), [10, 10]);
 });
 
-test('barra de informações: só textos, rodízio saneado', () => {
+test('barra de informações: itens de texto, rodízio saneado', () => {
   const bar = feed.normalizeInfoBar({
     enabled: true,
     rotationSeconds: -5,
-    messages: [{ text: ' Olá ' }, { text: '' }, { text: 'Segundo' }],
+    items: [
+      { id: 'i1', type: 'text', text: ' Olá ' },
+      { id: 'i2', type: 'text', text: '' },
+      { id: 'i3', type: 'text', text: 'Segundo' },
+    ],
   });
   assert.equal(bar.rotationSeconds, 10);
-  assert.deepEqual(bar.messages, ['Olá', 'Segundo']);
+  assert.deepEqual(bar.items, [
+    { id: 'i1', type: 'text', text: 'Olá' },
+    { id: 'i3', type: 'text', text: 'Segundo' },
+  ]);
+});
+
+test('barra de informações: imagem sem url é descartada, cotações sem moeda válida também', () => {
+  const bar = feed.normalizeInfoBar({
+    enabled: true,
+    rotationSeconds: 10,
+    items: [
+      { id: 'i1', type: 'image', contentId: 'c1', url: '' },
+      { id: 'i2', type: 'quotes', symbols: ['XXX'] },
+      { id: 'i3', type: 'image', contentId: 'c2', url: 'https://cdn/bar.png', validUntil: null },
+      { id: 'i4', type: 'quotes', symbols: ['USD', 'EUR', 'GBP'] },
+      { id: 'i5', type: 'unknown' },
+    ],
+  });
+  assert.deepEqual(bar.items, [
+    { id: 'i3', type: 'image', contentId: 'c2', url: 'https://cdn/bar.png', validUntil: null },
+    { id: 'i4', type: 'quotes', symbols: ['USD', 'EUR'] },
+  ]);
+});
+
+test('barra de informações: no máximo 10 itens', () => {
+  const items = Array.from({ length: 14 }, (_, i) => ({ id: `i${i}`, type: 'text', text: `Item ${i}` }));
+  const bar = feed.normalizeInfoBar({ enabled: true, rotationSeconds: 10, items });
+  assert.equal(bar.items.length, 10);
+});
+
+test('isInfoBarItemEligible: texto sempre elegível', () => {
+  assert.equal(feed.isInfoBarItemEligible({ type: 'text', text: 'a' }, new Date()), true);
+});
+
+test('isInfoBarItemEligible: imagem vencida é pulada', () => {
+  const now = new Date('2026-11-04T12:00:00.000Z');
+  const expired = { type: 'image', url: 'x', validUntil: '2026-11-01T00:00:00.000Z' };
+  const future = { type: 'image', url: 'y', validUntil: '2026-12-01T00:00:00.000Z' };
+  assert.equal(feed.isInfoBarItemEligible(expired, now), false);
+  assert.equal(feed.isInfoBarItemEligible(future, now), true);
+});
+
+test('isInfoBarItemEligible: imagem ainda não baixada é pulada', () => {
+  const item = { type: 'image', url: 'x', validUntil: null };
+  assert.equal(feed.isInfoBarItemEligible(item, new Date(), null, () => false), false);
+  assert.equal(feed.isInfoBarItemEligible(item, new Date(), null, () => true), true);
+});
+
+test('isInfoBarItemEligible: cotações sem cache, com cache velho ou sem a moeda pedida', () => {
+  const now = new Date('2026-11-04T12:00:00.000Z');
+  const item = { type: 'quotes', symbols: ['USD'] };
+  assert.equal(feed.isInfoBarItemEligible(item, now, null), false);
+  assert.equal(
+    feed.isInfoBarItemEligible(item, now, { items: [{ symbol: 'EUR' }], fetchedAt: now.getTime() }),
+    false,
+  );
+  assert.equal(
+    feed.isInfoBarItemEligible(item, now, { items: [{ symbol: 'USD' }], fetchedAt: now.getTime() - 7 * 60 * 60 * 1000 }),
+    false,
+  );
+  assert.equal(
+    feed.isInfoBarItemEligible(item, now, { items: [{ symbol: 'USD' }], fetchedAt: now.getTime() - 60 * 60 * 1000 }),
+    true,
+  );
 });
 
 test('sem barra no payload, ela vem desligada', () => {
@@ -108,6 +175,22 @@ test('imageUrls ignora vídeo (não é pré-carregado)', () => {
   );
   assert.deepEqual(feed.imageUrls(result), ['https://cdn/a.png']);
   assert.equal(feed.totalItems(result), 2);
+});
+
+test('imageUrls inclui a imagem da barra de informações', () => {
+  const result = feed.normalizeFeed(
+    {
+      layout: 'fullscreen',
+      zones: [{ position: 'full', items: [item({ id: 'img', url: 'https://cdn/a.png' })] }],
+      infoBar: {
+        enabled: true,
+        rotationSeconds: 10,
+        items: [{ id: 'bar-1', type: 'image', contentId: 'c1', url: 'https://cdn/bar.png' }],
+      },
+    },
+    NOW,
+  );
+  assert.deepEqual(feed.imageUrls(result), ['https://cdn/a.png', 'https://cdn/bar.png']);
 });
 
 test('payload antigo (array plano) não quebra: vira feed vazio marcado como legado', () => {

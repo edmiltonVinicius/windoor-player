@@ -400,7 +400,7 @@ WindoorPlayer.render = (function () {
       }).formatToParts(date);
       const day = (parts.find((p) => p.type === 'day') || {}).value || '--';
       const month = ((parts.find((p) => p.type === 'month') || {}).value || '--').replace('.', '');
-      return `${day}/${month.at(0).toUpperCase() + month.slice(1)}`;
+      return `${day}/${month.charAt(0).toUpperCase()}${month.slice(1)}`;
     } catch (_) { return '--/--'; }
   }
 

@@ -29,7 +29,7 @@ window.WindoorPlayer = window.WindoorPlayer || {};
     HEARTBEAT_INTERVAL_MS: 30000,
     REFRESH_INTERVAL_MS: 5 * 60 * 1000,
     // Barra de informações: horário/data alternam a cada 5 s; fuso fixo até existir `unit.timezone`.
-    INFO_BAR_CLOCK_TICK_MS: 5000,
+    INFO_BAR_CLOCK_TICK_MS: 8000,
     INFO_BAR_TIMEZONE: 'America/Sao_Paulo',
     INFO_BAR_TRANSITION_MS: 300,
     INFO_BAR_QUOTES_REFRESH_MS: 15 * 60 * 1000,

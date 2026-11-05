@@ -32,7 +32,7 @@ window.WindoorPlayer = window.WindoorPlayer || {};
     INFO_BAR_CLOCK_TICK_MS: 8000,
     INFO_BAR_TIMEZONE: 'America/Sao_Paulo',
     INFO_BAR_TRANSITION_MS: 300,
-    INFO_BAR_QUOTES_REFRESH_MS: 15 * 60 * 1000,
+    INFO_BAR_QUOTES_REFRESH_MS: 60 * 60 * 1000,
     // Túnel ngrok (plano grátis) injeta uma página de aviso em requests de navegador; o header a evita.
     // Só entra quando a API aponta para ngrok (desenvolvimento).
     EXTRA_HEADERS: /ngrok/i.test(apiUrl) ? { 'ngrok-skip-browser-warning': 'true' } : {},

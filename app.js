@@ -23,9 +23,9 @@
     await pairing.run();
   }
 
-  // 2) cotações da barra de informações: cache local primeiro, depois a API.
-  // `GET /info-bar/quotes` ainda não existe no backend (fonte de cotações é uma
-  // pendência de produto) — falha aqui é esperada e só mantém o cache como está.
+  // 2) cotações da barra de informações: cache local primeiro, depois a API
+  // (`GET /info-bar/quotes`, atualizada pelo backend a cada 45 min). Falha aqui
+  // (ex.: backend fora do ar) é tolerada e só mantém o cache como está.
   async function loadQuotesFromCache() {
     try {
       const cached = await cache.readQuotes();
@@ -37,7 +37,8 @@
     try {
       const data = await api.get('/info-bar/quotes');
       if (data && Array.isArray(data.items)) {
-        const quotes = { items: data.items, fetchedAt: Date.now() };
+        const fetchedAt = Date.parse(data.fetchedAt);
+        const quotes = { items: data.items, fetchedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now() };
         await cache.saveQuotes(quotes);
         render.setInfoBarQuotes(quotes);
       }
@@ -90,6 +91,15 @@
       cache.pruneImages(normalized);
       cache.preloadImages(normalized);
       render.setFeed(normalized);
+    });
+    socket.on('info_bar.quotes.updated', async (payload) => {
+      // O backend manda `fetchedAt` em ISO 8601; a elegibilidade (seção 6.4) compara
+      // contra um timestamp numérico, por isso convertemos aqui.
+      if (!payload || !Array.isArray(payload.items)) return;
+      const fetchedAt = Date.parse(payload.fetchedAt);
+      const quotes = { items: payload.items, fetchedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now() };
+      await cache.saveQuotes(quotes);
+      render.setInfoBarQuotes(quotes);
     });
 
     commands.start(socket);

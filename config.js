@@ -33,6 +33,8 @@ window.WindoorPlayer = window.WindoorPlayer || {};
     INFO_BAR_TIMEZONE: 'America/Sao_Paulo',
     INFO_BAR_TRANSITION_MS: 300,
     INFO_BAR_QUOTES_REFRESH_MS: 60 * 60 * 1000,
+    // Rede de segurança do clima: o servidor busca a cada 30 min e avisa via WebSocket.
+    INFO_BAR_WEATHER_REFRESH_MS: 30 * 60 * 1000,
     // Túnel ngrok (plano grátis) injeta uma página de aviso em requests de navegador; o header a evita.
     // Só entra quando a API aponta para ngrok (desenvolvimento).
     EXTRA_HEADERS: /ngrok/i.test(apiUrl) ? { 'ngrok-skip-browser-warning': 'true' } : {},

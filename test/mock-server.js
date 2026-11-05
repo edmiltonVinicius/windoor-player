@@ -35,6 +35,7 @@ const FEED_FULLSCREEN = {
       { id: 'ib-1', type: 'text', text: 'Reunião de condomínio quinta, 19h' },
       { id: 'ib-2', type: 'image', contentId: 'content-90', url: 'https://picsum.photos/id/1011/750/56', validUntil: null },
       { id: 'ib-3', type: 'quotes', symbols: ['USD', 'EUR'] },
+      { id: 'ib-4', type: 'weather', mode: 'today', location: { name: 'São Paulo', state: 'SP', latitude: -23.5475, longitude: -46.6361 } },
       { id: 'ib-4', type: 'text', text: 'Manutenção do elevador social sábado' },
     ],
   },
@@ -108,6 +109,21 @@ const server = http.createServer(async (req, res) => {
       items: [
         { symbol: 'USD', bid: 5.42, changePct: 0.3, sourceUpdatedAt: new Date().toISOString() },
         { symbol: 'EUR', bid: 6.21, changePct: -0.1, sourceUpdatedAt: new Date().toISOString() },
+      ],
+      fetchedAt: new Date().toISOString(),
+    });
+  }
+
+  // Simula GET /info-bar/weather?lat=&lon= (doc do clima, seção 3.1).
+  if (route.startsWith('GET /v1/info-bar/weather')) {
+    const day = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+    return ok(res, {
+      location: { latitude: -23.55, longitude: -46.64 },
+      current: { temperature: 24, condition: 'partly_cloudy' },
+      days: [
+        { date: day(0), condition: 'partly_cloudy', max: 27, min: 18 },
+        { date: day(1), condition: 'partly_cloudy', max: 25, min: 17 },
+        { date: day(2), condition: 'rain', max: 21, min: 16 },
       ],
       fetchedAt: new Date().toISOString(),
     });

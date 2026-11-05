@@ -205,3 +205,57 @@ test('payload nulo devolve feed vazio em fullscreen', () => {
   assert.equal(result.zones.length, 1);
   assert.equal(feed.totalItems(result), 0);
 });
+
+// ---------- clima (barra de informações) ----------
+
+const WEATHER_ITEM = { id: 'w1', type: 'weather', mode: 'today', location: { name: 'São Paulo', state: 'SP', latitude: -23.5475, longitude: -46.6361 } };
+const WEATHER_NOW = new Date('2026-11-05T18:00:00.000Z'); // 15:00 em Brasília
+const snapshot = (over = {}) => ({
+  location: { latitude: -23.55, longitude: -46.64 },
+  current: { temperature: 24, condition: 'partly_cloudy' },
+  days: [
+    { date: '2026-11-05', condition: 'partly_cloudy', max: 27, min: 18 },
+    { date: '2026-11-06', condition: 'partly_cloudy', max: 25, min: 17 },
+    { date: '2026-11-07', condition: 'rain', max: 21, min: 16 },
+  ],
+  fetchedAt: WEATHER_NOW.getTime() - 60 * 60 * 1000,
+  ...over,
+});
+const eligible = (itemOver, snap, now = WEATHER_NOW) =>
+  feed.isInfoBarItemEligible({ ...WEATHER_ITEM, ...itemOver }, now, null, null, snap, 'America/Sao_Paulo');
+
+test('normalizeInfoBarItem aceita clima e cai em "today" com formato desconhecido', () => {
+  assert.deepStrictEqual(feed.normalizeInfoBarItem({ ...WEATHER_ITEM, mode: 'week' }), { ...WEATHER_ITEM, mode: 'today' });
+  assert.strictEqual(feed.normalizeInfoBarItem({ id: 'w', type: 'weather', mode: 'now', location: {} }), null);
+});
+
+test('weatherKey agrupa coordenadas próximas como o backend (2 casas)', () => {
+  assert.strictEqual(feed.weatherKey(-23.5475, -46.6361), '-23.55:-46.64');
+  assert.strictEqual(feed.weatherKey(-23.55, -46.64), '-23.55:-46.64');
+});
+
+test('clima elegível com snapshot do mesmo local e até 3 h', () => {
+  assert.strictEqual(eligible({}, snapshot()), true);
+  assert.strictEqual(eligible({ mode: 'days' }, snapshot()), true);
+  assert.strictEqual(eligible({ mode: 'now' }, snapshot()), true);
+});
+
+test('clima pulado sem snapshot, de outro local ou com mais de 3 h', () => {
+  assert.strictEqual(eligible({}, null), false);
+  assert.strictEqual(eligible({}, snapshot({ location: { latitude: -22.91, longitude: -47.06 } })), false);
+  const stale = snapshot({ fetchedAt: WEATHER_NOW.getTime() - (3 * 60 + 1) * 60 * 1000 });
+  assert.strictEqual(eligible({}, stale), false);
+  const fresh = snapshot({ fetchedAt: WEATHER_NOW.getTime() - (2 * 60 + 59) * 60 * 1000 });
+  assert.strictEqual(eligible({}, fresh), true);
+});
+
+test('virada de dia descarta days[0] de ontem', () => {
+  const tomorrow = new Date('2026-11-06T12:00:00.000Z');
+  const snap = snapshot({ fetchedAt: tomorrow.getTime() - 60 * 1000 });
+  const days = feed.upcomingWeatherDays(snap, tomorrow, 'America/Sao_Paulo');
+  assert.deepStrictEqual(days.map((d) => d.date), ['2026-11-06', '2026-11-07']);
+  assert.strictEqual(eligible({ mode: 'days' }, snap, tomorrow), true);   // ainda tem 2 dias
+  const lastDay = new Date('2026-11-07T12:00:00.000Z');
+  assert.strictEqual(eligible({ mode: 'days' }, snapshot({ fetchedAt: lastDay.getTime() }), lastDay), false);
+  assert.strictEqual(eligible({ mode: 'today' }, snapshot({ fetchedAt: lastDay.getTime() }), lastDay), true);
+});

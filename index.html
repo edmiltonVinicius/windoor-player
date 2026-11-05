@@ -123,6 +123,19 @@
     .info-bar-change.down { color: #F0707A; }
     .info-bar-change.flat { color: #B9B5CC; }
 
+    /* clima: ícones preenchidos sobre o fundo fixo da barra */
+    .info-bar-weather { display: flex; align-items: center; gap: 1.2rem; min-width: 0; font-size: 2.6rem; font-weight: 600; white-space: nowrap; }
+    .info-bar-weather-icon { width: 3.4rem; height: 3.4rem; flex-shrink: 0; }
+    .info-bar-weather-temp { font-size: 2.8rem; font-weight: 700; }
+    .info-bar-weather-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .info-bar-weather-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #5E5975; flex-shrink: 0; }
+    .info-bar-weather-range em { font-style: normal; font-weight: 700; color: #B9B5CC; }
+    .info-bar-weather-days { display: flex; align-items: center; gap: 3rem; font-size: 2.6rem; font-weight: 600; white-space: nowrap; }
+    .info-bar-weather-day { display: inline-flex; align-items: center; gap: 0.8rem; }
+    .info-bar-weather-day b { font-weight: 700; }
+    .info-bar-weather-day i { font-style: normal; font-weight: 500; color: #B9B5CC; }
+    .info-bar-weather-icon-sm { width: 3rem; height: 3rem; flex-shrink: 0; }
+
     .info-bar-logo { width: 80px; flex-shrink: 0; display: block; }
 
     @media (prefers-reduced-motion: reduce) {

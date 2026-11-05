@@ -18,6 +18,7 @@ WindoorPlayer.render = (function () {
   let infoBarClockTimer = null;
   let infoBarClockShowDate = false;
   let infoBarQuotes = null;
+  let infoBarWeather = null;
   let infoBarAppliedKey = null;
   const infoBarImageStatus = new Map();   // url -> 'pending' | 'ready' | 'failed'
   const infoBarImageBlobUrls = new Map(); // url -> blob: URL já resolvida
@@ -262,7 +263,9 @@ WindoorPlayer.render = (function () {
 
     const eligible = [];
     items.forEach((item) => {
-      if (WindoorPlayer.feed.isInfoBarItemEligible(item, now, infoBarQuotes, isInfoBarImageReady)) {
+      if (WindoorPlayer.feed.isInfoBarItemEligible(
+        item, now, infoBarQuotes, isInfoBarImageReady, infoBarWeather, WindoorPlayer.config.INFO_BAR_TIMEZONE,
+      )) {
         eligible.push(item);
         return;
       }
@@ -271,6 +274,8 @@ WindoorPlayer.render = (function () {
         logInfoBarSkip(item, expired ? 'expired_image' : 'image_failed');
       } else if (item.type === 'quotes') {
         logInfoBarSkip(item, 'stale_quotes');
+      } else if (item.type === 'weather') {
+        logInfoBarSkip(item, 'stale_weather');
       }
     });
     return eligible;
@@ -302,6 +307,105 @@ WindoorPlayer.render = (function () {
     return wrap;
   }
 
+  // ---------- clima (seção 5 da doc do clima) ----------
+
+  const WEATHER_LABELS = {
+    clear: 'Céu limpo', partly_cloudy: 'Parcialmente nublado', cloudy: 'Nublado', fog: 'Neblina',
+    drizzle: 'Garoa', rain: 'Chuva', storm: 'Tempestade',
+  };
+  const WEATHER_SHORT = { partly_cloudy: 'Parc. nublado' };
+
+  const SUN = '#F7C948'; const CLOUD = '#D6D3E3'; const RAIN = '#5AA3DC'; const MUTED = '#B9B5CC';
+  const CLOUD_PATH = 'M17.5 20H9a4 4 0 1 1 .8-7.9A5 5 0 0 1 19 13.5a3.3 3.3 0 0 1-1.5 6.5Z';
+  const HIGH_CLOUD = 'M17.5 15H8a4 4 0 1 1 .8-7.9A5 5 0 0 1 18 8.5a3.3 3.3 0 0 1-.5 6.5Z';
+  const WEATHER_ICONS = {
+    clear: `<circle cx="12" cy="12" r="4.5" fill="${SUN}"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" stroke="${SUN}" stroke-width="1.8" stroke-linecap="round"/>`,
+    partly_cloudy: `<circle cx="9" cy="9" r="3.5" fill="${SUN}"/><path d="M9 2.5v1.5M3.5 9H2M4.4 4.4l1 1M13.6 4.4l-1 1" stroke="${SUN}" stroke-width="1.8" stroke-linecap="round"/><path d="${CLOUD_PATH}" fill="${CLOUD}"/>`,
+    cloudy: `<path d="M17.5 18H8a4.5 4.5 0 1 1 .9-8.9A5.5 5.5 0 0 1 19 11a3.5 3.5 0 0 1-1.5 7Z" fill="${CLOUD}"/>`,
+    fog: `<path d="${HIGH_CLOUD}" fill="${CLOUD}"/><path d="M5 18h14M7 21h10" stroke="${MUTED}" stroke-width="1.8" stroke-linecap="round"/>`,
+    drizzle: `<path d="${HIGH_CLOUD}" fill="${CLOUD}"/><path d="M10 18l-.7 2.5M15 18l-.7 2.5" stroke="${RAIN}" stroke-width="1.8" stroke-linecap="round"/>`,
+    rain: `<path d="${HIGH_CLOUD}" fill="${CLOUD}"/><path d="M9 18l-1 3M13 18l-1 3M17 18l-1 3" stroke="${RAIN}" stroke-width="1.8" stroke-linecap="round"/>`,
+    storm: `<path d="${HIGH_CLOUD}" fill="${CLOUD}"/><path d="M12.5 15.5 10 19.5h3l-1.5 3.5" stroke="${SUN}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+  };
+
+  function weatherIcon(condition, className) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', className);
+    svg.innerHTML = WEATHER_ICONS[condition] || WEATHER_ICONS.cloudy;
+    return svg;
+  }
+
+  /** Inteiro + "°"; negativo com "−" (U+2212). */
+  function formatTemperature(value) {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return '--°';
+    return `${n < 0 ? '\u2212' : ''}${Math.abs(n)}°`;
+  }
+
+  function formatWeekday(isoDate) {
+    try {
+      const raw = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', timeZone: WindoorPlayer.config.INFO_BAR_TIMEZONE })
+        .format(new Date(`${isoDate}T12:00:00-03:00`)).replace('.', '');
+      return raw.charAt(0).toUpperCase() + raw.slice(1, 3);
+    } catch (_) { return '---'; }
+  }
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function renderInfoBarWeatherContent(item) {
+    const weather = infoBarWeather;
+    const days = WindoorPlayer.feed.upcomingWeatherDays(weather, new Date(), WindoorPlayer.config.INFO_BAR_TIMEZONE);
+
+    if (item.mode === 'days') {
+      const wrap = el('div', 'info-bar-weather-days');
+      days.slice(0, 3).forEach((day) => {
+        const group = el('span', 'info-bar-weather-day');
+        group.appendChild(el('b', '', formatWeekday(day.date)));
+        group.appendChild(weatherIcon(day.condition, 'info-bar-weather-icon-sm'));
+        group.appendChild(document.createTextNode(formatTemperature(day.max)));
+        group.appendChild(el('i', '', formatTemperature(day.min)));
+        wrap.appendChild(group);
+      });
+      return wrap;
+    }
+
+    const wrap = el('div', 'info-bar-weather');
+    const condition = weather.current.condition;
+    wrap.appendChild(weatherIcon(condition, 'info-bar-weather-icon'));
+    wrap.appendChild(el('span', 'info-bar-weather-temp', formatTemperature(weather.current.temperature)));
+    const label = el('span', 'info-bar-weather-label', item.mode === 'now'
+      ? (WEATHER_LABELS[condition] || '')
+      : (WEATHER_SHORT[condition] || WEATHER_LABELS[condition] || ''));
+    wrap.appendChild(label);
+
+    if (item.mode === 'today' && days[0]) {
+      wrap.appendChild(el('span', 'info-bar-weather-dot'));
+      const min = el('span', 'info-bar-weather-range');
+      min.appendChild(el('em', '', 'Mín'));
+      min.appendChild(document.createTextNode(` ${formatTemperature(days[0].min)}`));
+      const max = el('span', 'info-bar-weather-range');
+      max.appendChild(el('em', '', 'Máx'));
+      max.appendChild(document.createTextNode(` ${formatTemperature(days[0].max)}`));
+      wrap.appendChild(min);
+      wrap.appendChild(max);
+    }
+
+    // "Agora" que não cabe: cai para o rótulo curto (seção 5.1); a reticência vem do CSS.
+    if (item.mode === 'now' && WEATHER_SHORT[condition]) {
+      requestAnimationFrame(() => {
+        if (label.scrollWidth > label.clientWidth) label.textContent = WEATHER_SHORT[condition];
+      });
+    }
+    return wrap;
+  }
+
   function renderInfoBarCenterContent(item) {
     const centerEl = document.getElementById('info-bar-center');
     if (!centerEl) return;
@@ -321,6 +425,8 @@ WindoorPlayer.render = (function () {
       centerEl.appendChild(img);
     } else if (item.type === 'quotes') {
       centerEl.appendChild(renderInfoBarQuotesContent(item));
+    } else if (item.type === 'weather') {
+      centerEl.appendChild(renderInfoBarWeatherContent(item));
     }
   }
 
@@ -381,6 +487,19 @@ WindoorPlayer.render = (function () {
   function setInfoBarQuotes(quotes) {
     infoBarQuotes = quotes;
     if (feed && feed.infoBar && feed.infoBar.enabled) startInfoBarRotation(feed.infoBar);
+  }
+
+  /** Clima recém-buscado do local da barra: reaplica o rodízio sem reiniciar a barra. */
+  function setInfoBarWeather(weather) {
+    infoBarWeather = weather;
+    if (feed && feed.infoBar && feed.infoBar.enabled) startInfoBarRotation(feed.infoBar);
+  }
+
+  /** Local do item de clima do feed atual (ou null): o app usa para buscar e filtrar eventos. */
+  function infoBarWeatherLocation() {
+    const items = (feed && feed.infoBar && feed.infoBar.items) || [];
+    const item = items.find((i) => i.type === 'weather');
+    return item ? item.location : null;
   }
 
   // ---------- barra de informações: horário/data (independentes do rodízio do centro) ----------
@@ -492,6 +611,8 @@ WindoorPlayer.render = (function () {
     setFeed,
     setStatus,
     setInfoBarQuotes,
+    setInfoBarWeather,
+    infoBarWeatherLocation,
     startLoop,
     currentContent,
     infoBarSummary,

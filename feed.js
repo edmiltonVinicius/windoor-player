@@ -10,6 +10,9 @@
   const INFO_BAR_MAX_ITEMS = 10;
   const INFO_BAR_MAX_QUOTE_SYMBOLS = 2;
   const INFO_BAR_QUOTES_STALE_MS = 6 * 60 * 60 * 1000;
+  const INFO_BAR_WEATHER_STALE_MS = 3 * 60 * 60 * 1000;
+  const WEATHER_MODES = ['now', 'today', 'days'];
+  const WEATHER_CONDITIONS = ['clear', 'partly_cloudy', 'cloudy', 'fog', 'drizzle', 'rain', 'storm'];
 
   const DEFAULT_INFO_BAR = { enabled: false, rotationSeconds: 10, items: [] };
 
@@ -59,6 +62,19 @@
       return symbols.length > 0 ? { id, type: 'quotes', symbols } : null;
     }
 
+    if (raw.type === 'weather') {
+      const loc = raw.location || {};
+      const latitude = Number(loc.latitude);
+      const longitude = Number(loc.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+      return {
+        id,
+        type: 'weather',
+        mode: WEATHER_MODES.includes(raw.mode) ? raw.mode : 'today',
+        location: { name: String(loc.name || ''), state: String(loc.state || ''), latitude, longitude },
+      };
+    }
+
     return null;
   }
 
@@ -81,7 +97,43 @@
    * uma das moedas pedidas e não passou de 6 h desde a última busca do servidor. Imagem
    * também depende de já ter sido baixada (`imageReady`, mantido pelo render.js).
    */
-  function isInfoBarItemEligible(item, now, quotes, imageReady) {
+  /**
+   * Mesma chave do backend (coordenadas em 2 casas): é como o player sabe se um evento
+   * `info_bar.weather.updated` é do seu local.
+   */
+  function weatherKey(latitude, longitude) {
+    const lat = Math.round(Number(latitude) * 100) / 100;
+    const lon = Math.round(Number(longitude) * 100) / 100;
+    return `${lat.toFixed(2)}:${lon.toFixed(2)}`;
+  }
+
+  /** `YYYY-MM-DD` de hoje no fuso da unidade. */
+  function todayInTimeZone(now, timeZone) {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    } catch (_) {
+      return (now || new Date()).toISOString().slice(0, 10);
+    }
+  }
+
+  /**
+   * Dias a partir de hoje (seção 5.2): um snapshot de ontem ainda tem `days[0]` no
+   * passado, então descartamos os dias anteriores a hoje no fuso da unidade.
+   */
+  function upcomingWeatherDays(weather, now, timeZone) {
+    const days = (weather && Array.isArray(weather.days) ? weather.days : [])
+      .filter((d) => d && typeof d.date === 'string' && WEATHER_CONDITIONS.includes(d.condition));
+    const today = todayInTimeZone(now || new Date(), timeZone);
+    return days.filter((d) => d.date >= today);
+  }
+
+  /**
+   * `type: image` elegível quando não vencido; `quotes`, quando o cache tem pelo menos
+   * uma das moedas pedidas e não passou de 6 h desde a última busca do servidor. Imagem
+   * também depende de já ter sido baixada (`imageReady`, mantido pelo render.js).
+   * `weather`, quando há snapshot do mesmo local com até 3 h e dias suficientes para o formato.
+   */
+  function isInfoBarItemEligible(item, now, quotes, imageReady, weather, timeZone) {
     const ref = (now || new Date()).getTime();
     if (!item) return false;
     if (item.type === 'text') return true;
@@ -98,6 +150,17 @@
       if (!Number.isFinite(fetchedAt) || ref - fetchedAt > INFO_BAR_QUOTES_STALE_MS) return false;
       const available = new Set(quotes.items.map((q) => q && q.symbol));
       return item.symbols.some((symbol) => available.has(symbol));
+    }
+    if (item.type === 'weather') {
+      if (!weather || !weather.current || !weather.location) return false;
+      if (weatherKey(weather.location.latitude, weather.location.longitude) !==
+          weatherKey(item.location.latitude, item.location.longitude)) return false;
+      const fetchedAt = Number(weather.fetchedAt);
+      if (!Number.isFinite(fetchedAt) || ref - fetchedAt > INFO_BAR_WEATHER_STALE_MS) return false;
+      if (!Number.isFinite(Number(weather.current.temperature))) return false;
+      if (item.mode === 'now') return true;
+      const days = upcomingWeatherDays(weather, now, timeZone || 'America/Sao_Paulo');
+      return item.mode === 'today' ? days.length >= 1 : days.length >= 2;
     }
     return false;
   }
@@ -176,6 +239,9 @@
     totalItems,
     LAYOUTS,
     QUOTE_SYMBOLS,
+    weatherKey,
+    upcomingWeatherDays,
+    INFO_BAR_WEATHER_STALE_MS,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else { root.WindoorPlayer = root.WindoorPlayer || {}; root.WindoorPlayer.feed = api; }

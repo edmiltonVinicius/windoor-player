@@ -118,15 +118,21 @@ WindoorPlayer.cache = (function () {
   // Cache-first: checa o Cache Storage pela URL exata; se não tiver, faz
   // fetch (`mode: 'cors'` explícito — resposta opaca não deixa saber se o
   // download deu certo nem quanto ocupou da cota — com EXTRA_HEADERS, por
-  // causa do túnel ngrok em dev) e guarda a Response clonada. Devolve um
-  // blob URL pronto pra usar em <img> ou <video>. Nunca envia Authorization:
-  // a mídia publicada é pública. Cada chamada gera um blob URL novo (ainda
-  // que o arquivo já esteja no Cache Storage); quem chama revoga ao trocar.
+  // causa do túnel ngrok em dev) e guarda a Response clonada. `cache: 'reload'`
+  // ignora o cache HTTP do navegador: a mídia sai do storage com `Cache-Control:
+  // immutable`, então uma resposta buscada antes de uma regra de CORS nova (ou
+  // antes do domínio público mudar) fica presa lá para sempre — o navegador nunca
+  // revalida um `immutable`. Sem custo extra: só roda na primeira vez por URL,
+  // porque a partir daqui quem decide repetir ou não é o Cache Storage acima, que
+  // não tem esse problema. Devolve um blob URL pronto pra usar em <img> ou
+  // <video>. Nunca envia Authorization: a mídia publicada é pública. Cada chamada
+  // gera um blob URL novo (ainda que o arquivo já esteja no Cache Storage); quem
+  // chama revoga ao trocar.
   async function getCachedMedia(url) {
     const cache = await caches.open(MEDIA_CACHE);
     let response = await cache.match(url);
     if (!response) {
-      response = await fetch(url, { headers: WindoorPlayer.config.EXTRA_HEADERS, mode: 'cors' });
+      response = await fetch(url, { headers: WindoorPlayer.config.EXTRA_HEADERS, mode: 'cors', cache: 'reload' });
       if (!response.ok) throw new Error(`resposta não-ok ao buscar mídia: ${response.status}`);
       cache.put(url, response.clone());
     }

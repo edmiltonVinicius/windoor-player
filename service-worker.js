@@ -6,7 +6,7 @@ const SHELL_FILES = [
   './',
   './index.html',
   './config.js',
-  './schedule.js',
+  './feed.js',
   './api.js',
   './cache.js',
   './render.js',

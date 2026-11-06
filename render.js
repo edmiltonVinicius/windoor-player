@@ -445,7 +445,10 @@ WindoorPlayer.render = (function () {
   /**
    * Rodízio do centro (seção 6.3): a cada `rotationSeconds`, reavalia os itens elegíveis
    * (imagem pode ter acabado de baixar, cotação pode ter ficado velha) e avança. Sem
-   * nenhum elegível, o centro fica vazio — sem mensagem de erro na tela.
+   * nenhum elegível, o centro fica vazio — sem mensagem de erro na tela. Com só um
+   * elegível (nada pra alternar com ele), pisca show/esconde no mesmo ritmo em vez de
+   * ficar preso na tela pra sempre — é o mesmo `rotationSeconds`, só que alternando com
+   * um intervalo vazio no lugar de outro item.
    */
   function startInfoBarRotation(infoBar) {
     if (infoBarRotationTimer) { clearInterval(infoBarRotationTimer); infoBarRotationTimer = null; }
@@ -454,6 +457,7 @@ WindoorPlayer.render = (function () {
     const now = new Date();
     let eligible = eligibleInfoBarItems(items, now);
     let index = 0;
+    let blank = false; // só usado quando eligible.length === 1
 
     infoBarEligibleCount = eligible.length;
     const appliedKey = `${items.length}:${eligible.length}`;
@@ -465,12 +469,18 @@ WindoorPlayer.render = (function () {
     }
 
     showInfoBarItem(eligible[0] || null);
-    if (eligible.length <= 1) return;
+    if (eligible.length === 0) return;
 
     const ms = Math.max(1, infoBar.rotationSeconds) * 1000;
     infoBarRotationTimer = setInterval(() => {
       eligible = eligibleInfoBarItems(items, new Date());
       if (eligible.length === 0) { showInfoBarItem(null); return; }
+      if (eligible.length === 1) {
+        blank = !blank;
+        showInfoBarItem(blank ? null : eligible[0]);
+        return;
+      }
+      blank = false;
       index = (index + 1) % eligible.length;
       showInfoBarItem(eligible[index]);
     }, ms);

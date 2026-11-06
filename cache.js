@@ -90,6 +90,31 @@ WindoorPlayer.cache = (function () {
     });
   }
 
+  // Último clima do local da barra: `{ location, current, days, fetchedAt }` (fetchedAt numérico).
+  // Mesmo store das cotações, com outra chave, para não precisar subir a versão do banco.
+  const WEATHER_KEY = 'weather';
+
+  async function saveWeather(weather) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(QUOTES_STORE, 'readwrite');
+      tx.objectStore(QUOTES_STORE).put({ ...weather, id: WEATHER_KEY });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+
+  async function readWeather() {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(QUOTES_STORE, 'readonly');
+      const req = tx.objectStore(QUOTES_STORE).get(WEATHER_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  }
+
   // Cache-first: checa o Cache Storage pela URL exata; se não tiver, faz
   // fetch (`mode: 'cors'` explícito — resposta opaca não deixa saber se o
   // download deu certo nem quanto ocupou da cota — com EXTRA_HEADERS, por
@@ -140,6 +165,8 @@ WindoorPlayer.cache = (function () {
     readFeed,
     saveQuotes,
     readQuotes,
+    saveWeather,
+    readWeather,
     getCachedMedia,
     preloadMedia,
     pruneMedia,

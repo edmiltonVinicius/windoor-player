@@ -49,6 +49,36 @@
     }
   }
 
+  // 3) clima da barra: mesmo padrão das cotações, mas por local (o do item de clima do
+  // feed). Sem item de clima, não busca nada.
+  function toWeatherState(data) {
+    const fetchedAt = Date.parse(data.fetchedAt);
+    return { ...data, fetchedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now() };
+  }
+
+  async function loadWeatherFromCache() {
+    try {
+      const cached = await cache.readWeather();
+      if (cached) render.setInfoBarWeather(cached);
+    } catch (_) { /* sem IndexedDB, segue sem clima */ }
+  }
+
+  async function refreshWeather() {
+    const loc = render.infoBarWeatherLocation();
+    if (!loc) return;
+    try {
+      const data = await api.get(`/info-bar/weather?lat=${encodeURIComponent(loc.latitude)}&lon=${encodeURIComponent(loc.longitude)}`);
+      if (data && data.current) {
+        const weather = toWeatherState(data);
+        await cache.saveWeather(weather);
+        render.setInfoBarWeather(weather);
+      }
+    } catch (error) {
+      // 404 = o servidor ainda não buscou este local; o item fica fora do rodízio até chegar.
+      logger.info('Clima da barra de informações não atualizado', { error: error.message, code: error.code });
+    }
+  }
+
   // 4) estado inicial: API → cache local
   async function loadInitial() {
     try {
@@ -91,6 +121,16 @@
       cache.pruneMedia(normalized);
       cache.preloadMedia(normalized);
       render.setFeed(normalized);
+      refreshWeather();   // o local do clima pode ter mudado junto com a barra
+    });
+    socket.on('info_bar.weather.updated', async (payload) => {
+      // O evento vai para todos os players; cada um só aplica o do seu local.
+      const loc = render.infoBarWeatherLocation();
+      if (!loc || !payload || !payload.snapshot) return;
+      if (feed.weatherKey(payload.lat, payload.lon) !== feed.weatherKey(loc.latitude, loc.longitude)) return;
+      const weather = toWeatherState(payload.snapshot);
+      await cache.saveWeather(weather);
+      render.setInfoBarWeather(weather);
     });
     socket.on('info_bar.quotes.updated', async (payload) => {
       // O backend manda `fetchedAt` em ISO 8601; a elegibilidade (seção 6.4) compara
@@ -131,6 +171,7 @@
   }
 
   await loadQuotesFromCache();
+  await loadWeatherFromCache();
   await loadInitial();
   connectSocket();
   render.startLoop();
@@ -138,6 +179,8 @@
   setInterval(refresh, config.REFRESH_INTERVAL_MS);
   refreshQuotes();
   setInterval(refreshQuotes, config.INFO_BAR_QUOTES_REFRESH_MS);
+  refreshWeather();
+  setInterval(refreshWeather, config.INFO_BAR_WEATHER_REFRESH_MS);
   if (wakelock) wakelock.start();
   if (watchdog) watchdog.start();          // só aqui: o loop de conteúdo já começou
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js');

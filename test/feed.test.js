@@ -165,7 +165,7 @@ test('sem barra no payload, ela vem desligada', () => {
   assert.equal(feed.normalizeFeed({ layout: 'fullscreen', zones: [] }, NOW).infoBar.enabled, false);
 });
 
-test('imageUrls ignora vídeo (não é pré-carregado)', () => {
+test('mediaUrls inclui imagem e vídeo das playlists', () => {
   const result = feed.normalizeFeed(
     { layout: 'fullscreen', zones: [{ position: 'full', items: [
       item({ id: 'img', url: 'https://cdn/a.png' }),
@@ -173,11 +173,11 @@ test('imageUrls ignora vídeo (não é pré-carregado)', () => {
     ] }] },
     NOW,
   );
-  assert.deepEqual(feed.imageUrls(result), ['https://cdn/a.png']);
+  assert.deepEqual(feed.mediaUrls(result), ['https://cdn/a.png', 'https://cdn/b.mp4']);
   assert.equal(feed.totalItems(result), 2);
 });
 
-test('imageUrls inclui a imagem da barra de informações', () => {
+test('mediaUrls inclui a imagem da barra de informações', () => {
   const result = feed.normalizeFeed(
     {
       layout: 'fullscreen',
@@ -190,7 +190,7 @@ test('imageUrls inclui a imagem da barra de informações', () => {
     },
     NOW,
   );
-  assert.deepEqual(feed.imageUrls(result), ['https://cdn/a.png', 'https://cdn/bar.png']);
+  assert.deepEqual(feed.mediaUrls(result), ['https://cdn/a.png', 'https://cdn/bar.png']);
 });
 
 test('payload antigo (array plano) não quebra: vira feed vazio marcado como legado', () => {

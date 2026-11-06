@@ -24,6 +24,22 @@ WindoorPlayer.render = (function () {
   const infoBarSkipLogAt = new Map();     // `${type}:${id}:${reason}` -> timestamp do último log
   let infoBarEligibleCount = 0;
 
+  // Download de mídia de zona falha mais de uma vez por hora (item que volta no rodízio
+  // antes disso): sem limite, um conteúdo quebrado inundaria os logs a cada troca.
+  const mediaFailLogAt = new Map(); // contentId -> timestamp do último log
+
+  function logMediaDownloadFailed(item, error, extra) {
+    if (!WindoorPlayer.logger) return;
+    const key = item.contentId || item.url;
+    const now = Date.now();
+    const last = mediaFailLogAt.get(key) || 0;
+    if (now - last < 60 * 60 * 1000) return;
+    mediaFailLogAt.set(key, now);
+    WindoorPlayer.logger.error('Falha ao baixar mídia do conteúdo', {
+      contentId: item.contentId, url: item.url, type: item.type, error: error.message, ...extra,
+    });
+  }
+
   function showView(name) {
     VIEWS.forEach((view) => {
       const el = document.getElementById(view);
@@ -106,7 +122,6 @@ WindoorPlayer.render = (function () {
   function createMediaElement(item) {
     if (item.type === 'video') {
       const video = document.createElement('video');
-      video.src = item.url;
       video.muted = true;            // autoplay só é permitido sem som
       video.autoplay = true;
       video.playsInline = true;
@@ -119,29 +134,26 @@ WindoorPlayer.render = (function () {
   }
 
   /**
-   * Coloca o item no ar com cross-fade. Imagem vem do cache (blob URL);
-   * vídeo toca direto da rede, para não encher o Cache Storage.
+   * Coloca o item no ar com cross-fade. Imagem e vídeo vêm do Cache Storage (blob URL):
+   * a key de upload nunca se repete, então a URL é imutável e cabe em cache-first mesmo
+   * para vídeo (seção 12 do guia de storage). Download que falha não troca a tela —
+   * mantém o que está no ar em vez de piscar uma zona vazia — e fica de fora até a
+   * próxima vez que entrar no rodízio.
    */
   async function showItem(position, item) {
     const state = zoneStates.get(position);
     if (!state || !item) return;
 
-    let src = item.url;
-    if (item.type === 'image') {
-      try {
-        src = await WindoorPlayer.cache.getCachedImage(item.url);
-      } catch (error) {
-        if (WindoorPlayer.logger) {
-          WindoorPlayer.logger.error('Falha ao carregar imagem do conteúdo', {
-            url: item.url, zone: position, error: error.message,
-          });
-        }
-        return; // mantém o que está no ar em vez de piscar uma zona vazia
-      }
+    let src;
+    try {
+      src = await WindoorPlayer.cache.getCachedMedia(item.url);
+    } catch (error) {
+      logMediaDownloadFailed(item, error, { zone: position });
+      return;
     }
 
     const entering = createMediaElement(item);
-    if (item.type === 'image') entering.src = src;
+    entering.src = src;
     entering.className = 'zone-media';
     state.el.appendChild(entering);
 
@@ -239,18 +251,14 @@ WindoorPlayer.render = (function () {
   function ensureInfoBarImageRequested(item) {
     if (infoBarImageStatus.has(item.url)) return;
     infoBarImageStatus.set(item.url, 'pending');
-    WindoorPlayer.cache.getCachedImage(item.url)
+    WindoorPlayer.cache.getCachedMedia(item.url)
       .then((blobUrl) => {
         infoBarImageBlobUrls.set(item.url, blobUrl);
         infoBarImageStatus.set(item.url, 'ready');
       })
       .catch((error) => {
         infoBarImageStatus.set(item.url, 'failed');
-        if (WindoorPlayer.logger) {
-          WindoorPlayer.logger.error('Falha ao baixar imagem da barra de informações', {
-            itemId: item.id, url: item.url, error: error.message,
-          });
-        }
+        logMediaDownloadFailed(item, error, { itemId: item.id, infoBar: true });
       });
   }
 

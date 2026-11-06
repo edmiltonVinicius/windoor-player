@@ -1,5 +1,7 @@
 const CACHE_NAME = 'windoor-shell-v2';
-const IMAGE_CACHE = 'windoor-images-v1';
+// Nome deve bater com `MEDIA_CACHE` em cache.js — é a mesma Cache Storage, só que
+// `cache.js` grava direto, sem passar pelo `fetch` deste worker (mídia é cross-origin).
+const MEDIA_CACHE = 'windoor-media-v1';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -31,14 +33,15 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Remove qualquer cache que não seja o shell atual nem o de imagens — isso
-// também elimina os caches legados totem-*.
+// Remove qualquer cache que não seja o shell atual nem o de mídia atual — isso
+// também elimina os caches legados totem-* e o `windoor-images-v1` de antes do
+// vídeo entrar no cache-first.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((names) =>
       Promise.all(
         names
-          .filter((name) => name !== CACHE_NAME && name !== IMAGE_CACHE)
+          .filter((name) => name !== CACHE_NAME && name !== MEDIA_CACHE)
           .map((name) => caches.delete(name))
       )
     )

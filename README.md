@@ -109,7 +109,7 @@ orquestrador e entra por último.
 | `api.js` | único ponto de rede: `Authorization`, `EXTRA_HEADERS`, desembrulha o envelope, lança `ApiError`, dispara `windoor:unauthorized` / `windoor:inactive` |
 | `schedule.js` | período e dayparting (funções puras, UMD, testadas em Node) |
 | `pairing.js` | tela e fluxo de pareamento (visor, teclado físico e na tela, erros, trava de 60 s) |
-| `cache.js` | IndexedDB `windoor-player`/`contents` + Cache Storage `windoor-images-v1` (cache-first, pré-carregamento, poda) |
+| `cache.js` | IndexedDB `windoor-player`/`contents` + Cache Storage `windoor-media-v1` (cache-first para imagem e vídeo, pré-carregamento, poda) |
 | `render.js` | loop de exibição, cross-fade entre duas camadas `<img>`, `showView`, fallback, proof of play ao sair de cena |
 | `logger.js` | console sempre; remoto só com token, limitado a 20 logs/min, `context` truncado em 8 KB |
 | `heartbeat.js` | `POST /player/heartbeat` a cada 30 s |

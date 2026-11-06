@@ -54,8 +54,8 @@
     try {
       const normalized = feed.normalizeFeed(await api.get('/player/contents'));
       await cache.saveFeed(normalized);
-      cache.pruneImages(normalized);
-      cache.preloadImages(normalized);
+      cache.pruneMedia(normalized);
+      cache.preloadMedia(normalized);
       render.setStatus('online');
       render.setFeed(normalized);
     } catch (error) {
@@ -88,8 +88,8 @@
       // O evento carrega o mesmo formato de GET /player/contents.
       const normalized = feed.normalizeFeed(payload && payload.contents);
       await cache.saveFeed(normalized);
-      cache.pruneImages(normalized);
-      cache.preloadImages(normalized);
+      cache.pruneMedia(normalized);
+      cache.preloadMedia(normalized);
       render.setFeed(normalized);
     });
     socket.on('info_bar.quotes.updated', async (payload) => {
@@ -111,7 +111,7 @@
     try {
       const normalized = feed.normalizeFeed(await api.get('/player/contents'));
       await cache.saveFeed(normalized);
-      cache.preloadImages(normalized);
+      cache.preloadMedia(normalized);
       render.setStatus('online');
       render.setFeed(normalized);
       return true;

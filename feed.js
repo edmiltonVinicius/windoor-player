@@ -151,12 +151,14 @@
   }
 
   /**
-   * Todas as URLs de imagem do feed, playlists + barra de informações (vídeo não é
-   * pré-carregado: toca direto da rede).
+   * Todas as URLs de mídia do feed: itens das playlists (imagem e vídeo) + imagens da
+   * barra de informações (ela não tem item de vídeo). Pré-carregadas no Cache Storage
+   * assim que a configuração chega, antes de entrarem no rodízio — a key de upload
+   * nunca se repete, então a URL é imutável e pode viver em cache por muito tempo.
    */
-  function imageUrls(feed) {
+  function mediaUrls(feed) {
     const zones = (feed && feed.zones) || [];
-    const fromZones = zones.flatMap((zone) => (zone.items || []).filter((i) => i.type === 'image').map((i) => i.url));
+    const fromZones = zones.flatMap((zone) => (zone.items || []).map((i) => i.url));
     const barItems = (feed && feed.infoBar && feed.infoBar.items) || [];
     const fromBar = barItems.filter((i) => i.type === 'image').map((i) => i.url);
     return [...fromZones, ...fromBar];
@@ -172,7 +174,7 @@
     normalizeInfoBarItem,
     isInfoBarItemEligible,
     isPlayable,
-    imageUrls,
+    mediaUrls,
     totalItems,
     LAYOUTS,
     QUOTE_SYMBOLS,

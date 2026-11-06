@@ -59,3 +59,27 @@ O player foi reescrito para esse modelo.
 7. **Zona vazia tem duas mensagens distintas**: "Sem playlist nesta zona" (nenhuma atribuída) e
    "Playlist sem conteúdo disponível" (atribuída, mas sem item exibível — conteúdo em rascunho,
    vencido ou sem arquivo). A diferença importa para o diagnóstico em campo.
+
+## Mídia em cache (imagem e vídeo) — seção 12 do guia de storage (2026-11-05)
+
+O backend passou a servir mídia por URL pública estável e **imutável** (bucket R2/MinIO:
+upload gera um UUID novo a cada envio, nunca reaproveita a key) e a capar cada arquivo em
+200 MB. Isso supera a decisão 3 acima ("vídeo toca direto da rede"): agora cabe no mesmo
+cache-first das imagens.
+
+1. **`cache.getCachedMedia` substitui `getCachedImage`.** Mesma função, mesmo Cache Storage
+   (renomeado de `windoor-images-v1` para `windoor-media-v1` — o `activate` do service worker
+   já limpa o nome antigo, sem precisar de migração), agora chamada também por `showItem` para
+   vídeo. `fetch` ganhou `mode: 'cors'` explícito: resposta opaca não deixa saber se o download
+   deu certo nem quanto ocupou da cota (seção 12.3).
+2. **`feed.imageUrls` virou `feed.mediaUrls`**, incluindo os itens de vídeo das playlists. A
+   barra de informações continua só com imagem (o modelo de item dela nunca teve `video`).
+3. **Pré-carregado, mas sem gate de elegibilidade na zona.** Igual já funcionava para imagem:
+   o download é disparado assim que a configuração chega (`preloadMedia`, fire-and-forget) e
+   `showItem` também busca cache-first no momento de entrar no ar. Download que falha não troca
+   a tela (mantém o conteúdo anterior) e loga `Falha ao baixar mídia do conteúdo` com
+   `contentId`, no máximo uma vez por hora por conteúdo — rodízios curtos repetiriam a falha a
+   cada troca sem o limite.
+4. **Blob URL é descartável por natureza.** Cada `getCachedMedia` cria um `URL.createObjectURL`
+   novo (a Response em si é que fica persistida no Cache Storage); `showItem` já revogava o
+   blob da imagem anterior ao trocar — a mesma linha agora cobre vídeo também, sem mudança.

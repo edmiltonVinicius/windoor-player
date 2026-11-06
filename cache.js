@@ -5,7 +5,10 @@ WindoorPlayer.cache = (function () {
   const DB_VERSION = 2;
   const STORE = 'contents';
   const QUOTES_STORE = 'quotes';
-  const IMAGE_CACHE = 'windoor-images-v1';
+  // v1 só guardava imagem; vídeo agora também é imutável (uma key nunca é reaproveitada,
+  // seção 0 do guia de storage), então cabe no mesmo cache-first. Nome novo para que o
+  // `activate` do service worker apague o cache antigo sem precisar de migração.
+  const MEDIA_CACHE = 'windoor-media-v1';
 
   // Resquícios do MVP single-tenant (totem-*): não há migração de dados,
   // só limpeza, para não ocupar espaço no dispositivo indefinidamente.
@@ -113,40 +116,44 @@ WindoorPlayer.cache = (function () {
   }
 
   // Cache-first: checa o Cache Storage pela URL exata; se não tiver, faz
-  // fetch (com EXTRA_HEADERS, por causa do túnel ngrok em dev) e guarda a
-  // Response clonada. Devolve um blob URL pronto pra usar em <img>.
-  // Nunca envia Authorization: as imagens são públicas.
-  async function getCachedImage(url) {
-    const cache = await caches.open(IMAGE_CACHE);
+  // fetch (`mode: 'cors'` explícito — resposta opaca não deixa saber se o
+  // download deu certo nem quanto ocupou da cota — com EXTRA_HEADERS, por
+  // causa do túnel ngrok em dev) e guarda a Response clonada. Devolve um
+  // blob URL pronto pra usar em <img> ou <video>. Nunca envia Authorization:
+  // a mídia publicada é pública. Cada chamada gera um blob URL novo (ainda
+  // que o arquivo já esteja no Cache Storage); quem chama revoga ao trocar.
+  async function getCachedMedia(url) {
+    const cache = await caches.open(MEDIA_CACHE);
     let response = await cache.match(url);
     if (!response) {
-      response = await fetch(url, { headers: WindoorPlayer.config.EXTRA_HEADERS });
-      if (!response.ok) throw new Error(`resposta não-ok ao buscar imagem: ${response.status}`);
+      response = await fetch(url, { headers: WindoorPlayer.config.EXTRA_HEADERS, mode: 'cors' });
+      if (!response.ok) throw new Error(`resposta não-ok ao buscar mídia: ${response.status}`);
       cache.put(url, response.clone());
     }
     const blob = await response.blob();
     return URL.createObjectURL(blob);
   }
 
-  // Pré-carrega em paralelo as imagens do feed, sem bloquear quem chamou
-  // (fire-and-forget). Falha de uma imagem não afeta as outras. Vídeo fica de
-  // fora de propósito: até 200 MB por arquivo encheria o Cache Storage.
-  function preloadImages(feed) {
-    WindoorPlayer.feed.imageUrls(feed).forEach((url) => {
-      getCachedImage(url).catch((error) => {
+  // Pré-carrega em paralelo toda a mídia do feed (imagem e vídeo), sem bloquear
+  // quem chamou (fire-and-forget) e antes de entrar no rodízio (seção 12 do guia
+  // de storage). Falha de um arquivo não afeta os outros; cada upload é limitado a
+  // 200 MB e a key nunca se repete, o que torna o cache seguro em operação 24/7.
+  function preloadMedia(feed) {
+    WindoorPlayer.feed.mediaUrls(feed).forEach((url) => {
+      getCachedMedia(url).catch((error) => {
         if (WindoorPlayer.logger) {
-          WindoorPlayer.logger.error('Falha ao pré-carregar imagem', { url, error: error.message });
+          WindoorPlayer.logger.error('Falha ao pré-carregar mídia', { url, error: error.message });
         }
       });
     });
   }
 
-  // Remove do Cache Storage imagens fora do feed atual — evita crescimento
+  // Remove do Cache Storage mídia fora do feed atual — evita crescimento
   // ilimitado em operação 24/7. Seguro porque cada upload gera um UUID novo:
   // uma URL nunca muda de conteúdo.
-  async function pruneImages(feed) {
-    const cache = await caches.open(IMAGE_CACHE);
-    const valid = new Set(WindoorPlayer.feed.imageUrls(feed));
+  async function pruneMedia(feed) {
+    const cache = await caches.open(MEDIA_CACHE);
+    const valid = new Set(WindoorPlayer.feed.mediaUrls(feed));
     const requests = await cache.keys();
     await Promise.all(
       requests.filter((req) => !valid.has(req.url)).map((req) => cache.delete(req))
@@ -160,13 +167,13 @@ WindoorPlayer.cache = (function () {
     readQuotes,
     saveWeather,
     readWeather,
-    getCachedImage,
-    preloadImages,
-    pruneImages,
+    getCachedMedia,
+    preloadMedia,
+    pruneMedia,
     DB_NAME,
     STORE,
     QUOTES_STORE,
-    IMAGE_CACHE,
+    MEDIA_CACHE,
     FEED_KEY,
   };
 })();

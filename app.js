@@ -1,11 +1,15 @@
 // Orquestrador: configuração → identidade → estado inicial → tempo real.
 (async function start() {
-  const { config, api, cache, feed, render, logger, heartbeat, commands, proofOfPlay, wakelock, watchdog, pairing } = WindoorPlayer;
+  const { config, api, cache, feed, render, logger, heartbeat, commands, proofOfPlay, wakelock, watchdog, pairing, unpair } = WindoorPlayer;
 
   let inactiveRetryId = null;
 
   // 0) estado terminal de configuração: sem API_URL não há nada a fazer.
   if (!config.API_URL) { render.showView('setup-error'); return; }
+
+  // Disponível em qualquer tela (pareamento ou conteúdo): técnico segura o canto
+  // inferior direito para desparear o totem manualmente.
+  if (unpair) unpair.init();
 
   // 1) identidade
   window.addEventListener('windoor:unauthorized', () => {

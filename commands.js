@@ -31,6 +31,17 @@ WindoorPlayer.commands = (function () {
         break;
       }
 
+      case 'logout':
+        // CMS forçou o despareamento (ex.: suporte precisa reparear a tela). O token já foi
+        // invalidado no servidor; aqui só limpamos a identidade local e voltamos ao pareamento.
+        ack('acknowledged');
+        logger.info('Comando de logout remoto: voltando à tela de pareamento', { id: cmd.id });
+        setTimeout(() => {
+          WindoorPlayer.config.clearIdentity();
+          location.reload();
+        }, 200);
+        break;
+
       // 'restart' (reiniciar o dispositivo) e 'update_version' (baixar nova
       // versão) não existem no navegador: quem executa é o agente de kiosk
       // nativo (systemd, Fully Kiosk) exposto como window.WindoorKiosk.

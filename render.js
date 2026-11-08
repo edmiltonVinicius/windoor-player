@@ -12,6 +12,7 @@ WindoorPlayer.render = (function () {
   /** Estado por zona: elemento, índice, timer e o que está no ar (proof of play). */
   const zoneStates = new Map();
   let lastTickMs = Date.now();
+  let heartbeatTimer = null;
 
   // ---------- barra de informações: estado ----------
   let infoBarRotationTimer = null;
@@ -135,11 +136,38 @@ WindoorPlayer.render = (function () {
   }
 
   /**
+   * Espera o elemento estar de fato pronto para exibir (imagem decodificada / vídeo com
+   * o primeiro frame disponível) antes de entrar na tela. Sem isso, o cross-fade começa
+   * em cima de um conteúdo ainda "carregando" (seção do bug: imagem aparece incompleta).
+   * Timeout de segurança: nunca trava o rodízio por um load que não dispara.
+   */
+  function waitMediaReady(mediaEl, item) {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (done) return; done = true; resolve(); };
+      if (item.type === 'video') {
+        if (mediaEl.readyState >= 2) { finish(); return; }
+        mediaEl.addEventListener('loadeddata', finish, { once: true });
+        mediaEl.addEventListener('error', finish, { once: true });
+      } else {
+        if (mediaEl.complete && mediaEl.naturalWidth > 0) { finish(); return; }
+        mediaEl.addEventListener('load', finish, { once: true });
+        mediaEl.addEventListener('error', finish, { once: true });
+      }
+      setTimeout(finish, 5000);
+    });
+  }
+
+  /**
    * Coloca o item no ar com cross-fade. Imagem e vídeo vêm do Cache Storage (blob URL):
    * a key de upload nunca se repete, então a URL é imutável e cabe em cache-first mesmo
    * para vídeo (seção 12 do guia de storage). Download que falha não troca a tela —
    * mantém o que está no ar em vez de piscar uma zona vazia — e fica de fora até a
    * próxima vez que entrar no rodízio.
+   *
+   * Só conta a duração do item (e dispara o cross-fade) depois que ele está
+   * completamente carregado: do contrário o tempo configurado encolhe pelo tanto que
+   * o download/decodificação levou, e a troca acontece antes da hora.
    */
   async function showItem(position, item) {
     const state = zoneStates.get(position);
@@ -157,6 +185,8 @@ WindoorPlayer.render = (function () {
     entering.src = src;
     entering.className = 'zone-media';
     state.el.appendChild(entering);
+
+    await waitMediaReady(entering, item);
 
     // Força um frame antes de animar, senão a transição não acontece.
     requestAnimationFrame(() => entering.classList.add('visible'));
@@ -182,6 +212,11 @@ WindoorPlayer.render = (function () {
 
   // ---------- loop por zona ----------
 
+  /**
+   * Conta a duração do item atual a partir do momento em que ele está de fato no ar
+   * (já carregado e visível) — não de quando o rodízio decidiu trocar. Senão o tempo
+   * configurado (imagem ou vídeo) encolhe pelo tanto que o download/decodificação levou.
+   */
   function scheduleNext(position) {
     const state = zoneStates.get(position);
     const zone = feed && feed.zones.find((z) => z.position === position);
@@ -191,13 +226,13 @@ WindoorPlayer.render = (function () {
     const durationMs = Math.max(1, item.durationSeconds) * 1000;
 
     if (state.timer) clearTimeout(state.timer);
-    state.timer = setTimeout(() => {
+    state.timer = setTimeout(async () => {
       lastTickMs = Date.now();
       // Uma zona com um item só continua "tiquetaqueando" para o watchdog,
       // mesmo sem troca visível.
       if (zone.items.length > 1) {
         state.index = (state.index + 1) % zone.items.length;
-        void showItem(position, zone.items[state.index]);
+        await showItem(position, zone.items[state.index]);
       }
       scheduleNext(position);
     }, durationMs);
@@ -218,8 +253,10 @@ WindoorPlayer.render = (function () {
     }
 
     state.index = 0;
-    void showItem(position, zone.items[0]);
-    scheduleNext(position);
+    (async () => {
+      await showItem(position, zone.items[0]);
+      scheduleNext(position);
+    })();
   }
 
   // ---------- barra de informações ----------
@@ -576,6 +613,16 @@ WindoorPlayer.render = (function () {
     const unchangedZones = !layoutChanged && next.zones.every((zone) => sameSequence(zone.position, zone));
 
     if (WindoorPlayer.feed.totalItems(next) === 0) {
+      // Uma atualização (refresh periódico, reconexão do socket) que chega vazia nunca
+      // pode substituir o que já está no ar: a troca tem que ser imperceptível para
+      // quem está vendo o totem. Só mostra "sem conteúdo" quando realmente não havia
+      // nada antes — do contrário essa tela piscaria por cima de uma exibição normal.
+      if (feed && WindoorPlayer.feed.totalItems(feed) > 0) {
+        if (WindoorPlayer.logger) {
+          WindoorPlayer.logger.info('Atualização sem conteúdo ignorada: mantendo o que está no ar', {});
+        }
+        return;
+      }
       feed = next;
       if (layoutChanged) buildZones(next.layout, next.zones);
       next.zones.forEach((zone) => startZone(zone.position));
@@ -622,8 +669,21 @@ WindoorPlayer.render = (function () {
     };
   }
 
-  /** Compatibilidade com o watchdog, que só precisa saber que o loop está vivo. */
-  function startLoop() { startInfoBarClock(); }
+  /**
+   * O watchdog só precisa saber que o loop de JS está vivo — antes, quem atualizava
+   * `lastTickMs` era só a troca de item em `scheduleNext`, então qualquer item com
+   * `durationSeconds` maior que o limite do watchdog (3 × `CONTENT_DURATION_MS`, hoje
+   * 24 s) ficava "sem bater" tempo demais no meio da própria exibição — o watchdog
+   * achava que tinha travado e recarregava a página, cortando o conteúdo. Esse batimento
+   * roda sozinho, sem depender da duração configurada de imagem/vídeo.
+   */
+  function startTickHeartbeat() {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    lastTickMs = Date.now();
+    heartbeatTimer = setInterval(() => { lastTickMs = Date.now(); }, 5000);
+  }
+
+  function startLoop() { startInfoBarClock(); startTickHeartbeat(); }
 
   return {
     setFeed,

@@ -108,7 +108,7 @@
       flex: 1; min-width: 0; height: 5.6rem;
       display: flex; align-items: center; justify-content: center;
       transition: opacity 400ms ease-in-out;
-      border: 1px solid #d4b31e;
+      border: 1px solid #093c88;
     }
     #info-bar-center.info-bar-fading { opacity: 0; }
     .info-bar-text {
@@ -116,10 +116,13 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .info-bar-image { height: 100%; max-width: 100%; object-fit: cover; display: block; }
-    .info-bar-quotes { display: flex; align-items: baseline; gap: 25px; font-size: 13px; font-weight: 500; width: max-content; justify-content: space-between; }
-    .info-bar-quote { display: inline-flex; align-items: baseline; gap: 6px; font-size: 10.5px; }
-    .info-bar-quote em { font-style: normal; font-weight: 700; color: #B9B5CC; font-size: 12px; }
-    .info-bar-change { font-size: 9px; font-weight: 600; }
+    .info-bar-quotes { display: block; font-size: 13px; font-weight: 500; width: max-content; justify-content: space-between; }
+    /* .info-bar-quotes { display: flex; align-items: baseline; gap: 25px; font-size: 13px; font-weight: 500; width: max-content; justify-content: space-between; } */
+    .info-bar-quote { display: inline-block; margin: 0 10px; font-size: 10.5px; }
+    /* .info-bar-quote { display: inline-flex; align-items: baseline; gap: 6px; font-size: 10.5px; } */
+    .info-bar-quote em { font-style: normal; font-weight: 700; color: #B9B5CC; font-size: 12px; margin-right: 6px; }
+    /* .info-bar-quote em { font-style: normal; font-weight: 700; color: #B9B5CC; font-size: 12px; } */
+    .info-bar-change { font-size: 8px; font-weight: 600; }
     .info-bar-change.up { color: #4CC38A; }
     .info-bar-change.down { color: #F0707A; }
     .info-bar-change.flat { color: #B9B5CC; }

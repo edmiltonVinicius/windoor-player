@@ -15,6 +15,7 @@
   const WEATHER_CONDITIONS = ['clear', 'partly_cloudy', 'cloudy', 'fog', 'drizzle', 'rain', 'storm'];
 
   const DEFAULT_INFO_BAR = { enabled: false, rotationSeconds: 10, items: [] };
+  const DEFAULT_ANNOUNCEMENTS = { enabled: false, everyNMedia: 3, durationSeconds: 15, items: [] };
 
   /** Vencido = tem validade e ela já passou. Sem validade, vale para sempre. */
   function isPlayable(item, now) {
@@ -35,6 +36,9 @@
       // Duração inválida não pode travar a zona num item só: cai no padrão.
       durationSeconds: Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : 10,
       validUntil: item.validUntil || null,
+      // Preservado para o feed salvo em cache (já intercalado) poder ser re-normalizado
+      // sem duplicar comunicados — ver `interleaveAnnouncements`.
+      isAnnouncement: Boolean(item.isAnnouncement),
     };
   }
 
@@ -165,6 +169,74 @@
     return false;
   }
 
+  /** `null` quando o tipo é desconhecido ou falta a URL — nunca entra no rodízio. */
+  function normalizeAnnouncementItem(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const id = String(raw.id || '');
+    const url = String(raw.url || '');
+    if (!id || !url || !TYPES.includes(raw.type)) return null;
+    return { id, contentId: String(raw.contentId || id), type: raw.type, url };
+  }
+
+  function normalizeAnnouncements(raw) {
+    if (!raw || typeof raw !== 'object') return { ...DEFAULT_ANNOUNCEMENTS, items: [] };
+    const everyNMedia = Number(raw.everyNMedia);
+    const durationSeconds = Number(raw.durationSeconds);
+    const items = (Array.isArray(raw.items) ? raw.items : []).map(normalizeAnnouncementItem).filter(Boolean);
+    return {
+      enabled: Boolean(raw.enabled) && items.length > 0,
+      everyNMedia: Number.isFinite(everyNMedia) && everyNMedia > 0 ? Math.round(everyNMedia) : DEFAULT_ANNOUNCEMENTS.everyNMedia,
+      durationSeconds:
+        Number.isFinite(durationSeconds) && durationSeconds > 0 ? Math.round(durationSeconds) : DEFAULT_ANNOUNCEMENTS.durationSeconds,
+      items,
+    };
+  }
+
+  /**
+   * Intercala um comunicado a cada `everyNMedia` itens reais da playlist (seção 6 do
+   * documento de Comunicados). O resultado é determinístico — mesma entrada, mesma
+   * saída — para não reiniciar o rodízio da zona a cada atualização do feed
+   * (`sameSequence`, em `render.js`, compara os `id`s item a item).
+   *
+   * Como a zona já roda em loop (módulo do tamanho do array, em `render.js`), repetir
+   * a playlist base o suficiente para caber pelo menos um `everyNMedia` cheio garante
+   * que o comunicado apareça mesmo em playlists menores que a frequência configurada.
+   */
+  function interleaveAnnouncements(items, announcements) {
+    if (!announcements || !announcements.enabled || items.length === 0 || announcements.items.length === 0) return items;
+
+    const everyNMedia = announcements.everyNMedia;
+    const repeat = Math.max(1, Math.ceil(everyNMedia / items.length));
+    const result = [];
+    let mediaCount = 0;
+    let announcementIndex = 0;
+    let slot = 0;
+
+    for (let lap = 0; lap < repeat; lap += 1) {
+      for (const item of items) {
+        result.push(item);
+        mediaCount += 1;
+        if (mediaCount === everyNMedia) {
+          mediaCount = 0;
+          const source = announcements.items[announcementIndex % announcements.items.length];
+          announcementIndex += 1;
+          result.push({
+            id: `announcement:${source.id}:${slot}`,
+            contentId: source.contentId,
+            name: '',
+            type: source.type,
+            url: source.url,
+            durationSeconds: announcements.durationSeconds,
+            validUntil: null,
+            isAnnouncement: true,
+          });
+          slot += 1;
+        }
+      }
+    }
+    return result;
+  }
+
   /**
    * Devolve sempre a forma canônica: as zonas exatamente do layout, na ordem de
    * exibição, com os itens exibíveis. Tolera payload antigo (array plano) para
@@ -180,6 +252,7 @@
         layout: 'fullscreen',
         zones: [{ position: 'full', playlist: null, items: [] }],
         infoBar: { ...DEFAULT_INFO_BAR },
+        announcements: { ...DEFAULT_ANNOUNCEMENTS },
         skippedItems: 0,
         legacy: true,
       };
@@ -190,16 +263,20 @@
     const byPosition = new Map(
       (Array.isArray(feed.zones) ? feed.zones : []).map((zone) => [zone && zone.position, zone]),
     );
+    const announcements = normalizeAnnouncements(feed.announcements);
 
     const zones = LAYOUTS[layout].map((position) => {
       const zone = byPosition.get(position) || {};
       const items = (Array.isArray(zone.items) ? zone.items : [])
         .filter((item) => isPlayable(item, ref))
-        .map(normalizeItem);
+        .map(normalizeItem)
+        // Um feed salvo em cache já vem com comunicados intercalados: remove antes de
+        // intercalar de novo, senão dobra a cada normalização (ver cache local offline).
+        .filter((item) => !item.isAnnouncement);
       return {
         position,
         playlist: zone.playlist && zone.playlist.id ? { id: zone.playlist.id, name: zone.playlist.name || '' } : null,
-        items,
+        items: interleaveAnnouncements(items, announcements),
       };
     });
 
@@ -208,6 +285,7 @@
       layout,
       zones,
       infoBar: normalizeInfoBar(feed.infoBar),
+      announcements,
       skippedItems: Number(feed.skippedItems) || 0,
       legacy: false,
     };
@@ -233,6 +311,9 @@
 
   const api = {
     normalizeFeed,
+    normalizeAnnouncements,
+    normalizeAnnouncementItem,
+    interleaveAnnouncements,
     normalizeInfoBar,
     normalizeInfoBarItem,
     isInfoBarItemEligible,

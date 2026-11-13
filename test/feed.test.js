@@ -259,3 +259,74 @@ test('virada de dia descarta days[0] de ontem', () => {
   assert.strictEqual(eligible({ mode: 'days' }, snapshot({ fetchedAt: lastDay.getTime() }), lastDay), false);
   assert.strictEqual(eligible({ mode: 'today' }, snapshot({ fetchedAt: lastDay.getTime() }), lastDay), true);
 });
+
+// ---------- comunicados ----------
+
+const announcementRaw = (over = {}) => ({ id: 'ann-1', contentId: 'cont-ann-1', type: 'image', url: 'https://cdn/ann.png', ...over });
+
+test('normalizeAnnouncements descarta item sem url ou tipo desconhecido, e desliga sem itens', () => {
+  const result = feed.normalizeAnnouncements({
+    enabled: true,
+    everyNMedia: 3,
+    durationSeconds: 20,
+    items: [announcementRaw(), { id: 'bad', type: 'pdf', url: 'x' }, { id: 'nourl', type: 'image' }],
+  });
+  assert.strictEqual(result.enabled, true);
+  assert.strictEqual(result.items.length, 1);
+  assert.strictEqual(result.items[0].contentId, 'cont-ann-1');
+
+  const empty = feed.normalizeAnnouncements({ enabled: true, everyNMedia: 3, durationSeconds: 20, items: [] });
+  assert.strictEqual(empty.enabled, false);
+});
+
+test('interleaveAnnouncements intercala a cada N itens, ciclando entre comunicados ativos', () => {
+  const items = [item({ id: 'i1' }), item({ id: 'i2' }), item({ id: 'i3' }), item({ id: 'i4' }), item({ id: 'i5' })];
+  const announcements = feed.normalizeAnnouncements({
+    enabled: true,
+    everyNMedia: 2,
+    durationSeconds: 20,
+    items: [announcementRaw({ id: 'a1' }), announcementRaw({ id: 'a2' })],
+  });
+  const result = feed.interleaveAnnouncements(items, announcements);
+  // i1, i2, [a1], i3, i4, [a2], i5 — o último "N" não fecha, então não injeta no fim.
+  assert.deepStrictEqual(result.map((i) => i.id), ['i1', 'i2', 'announcement:a1:0', 'i3', 'i4', 'announcement:a2:1', 'i5']);
+  assert.strictEqual(result[2].contentId, 'cont-ann-1');
+  assert.strictEqual(result[2].durationSeconds, 20);
+  assert.strictEqual(result[2].isAnnouncement, true);
+});
+
+test('interleaveAnnouncements repete a playlist o suficiente quando ela é menor que a frequência', () => {
+  const items = [item({ id: 'i1' }), item({ id: 'i2' })];
+  const announcements = feed.normalizeAnnouncements({
+    enabled: true,
+    everyNMedia: 5,
+    durationSeconds: 20,
+    items: [announcementRaw()],
+  });
+  const result = feed.interleaveAnnouncements(items, announcements);
+  // repete 3x (ceil(5/2)) pra caber um "a cada 5": i1,i2,i1,i2,i1,[ann],i2
+  assert.deepStrictEqual(result.map((i) => i.id), ['i1', 'i2', 'i1', 'i2', 'i1', 'announcement:ann-1:0', 'i2']);
+});
+
+test('interleaveAnnouncements não muda nada sem comunicados ativos ou sem itens na zona', () => {
+  const items = [item({ id: 'i1' }), item({ id: 'i2' })];
+  const disabled = feed.normalizeAnnouncements({ enabled: false, everyNMedia: 1, durationSeconds: 20, items: [announcementRaw()] });
+  assert.deepStrictEqual(feed.interleaveAnnouncements(items, disabled), items);
+  const enabledNoItems = feed.normalizeAnnouncements({ enabled: true, everyNMedia: 1, durationSeconds: 20, items: [] });
+  assert.deepStrictEqual(feed.interleaveAnnouncements(items, enabledNoItems), items);
+  assert.deepStrictEqual(feed.interleaveAnnouncements([], disabled), []);
+});
+
+test('normalizeFeed intercala comunicados nas zonas e é idempotente sobre um feed já intercalado', () => {
+  const raw = {
+    layout: 'fullscreen',
+    zones: [{ position: 'full', playlist: { id: 'p', name: 'Playlist' }, items: [item({ id: 'i1' }), item({ id: 'i2' })] }],
+    announcements: { enabled: true, everyNMedia: 1, durationSeconds: 20, items: [announcementRaw()] },
+  };
+  const once = feed.normalizeFeed(raw, NOW);
+  assert.deepStrictEqual(once.zones[0].items.map((i) => i.id), ['i1', 'announcement:ann-1:0', 'i2', 'announcement:ann-1:1']);
+
+  // Simula o round-trip pelo cache local: normaliza de novo o feed já normalizado.
+  const twice = feed.normalizeFeed(once, NOW);
+  assert.deepStrictEqual(twice.zones[0].items.map((i) => i.id), once.zones[0].items.map((i) => i.id));
+});

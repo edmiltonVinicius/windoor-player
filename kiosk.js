@@ -13,7 +13,7 @@
       return;
     }
 
-    const url = `http://localhost:2323/?cmd=rebootDevice&password=${encodeURIComponent(password)}&type=json`;
+    const url = `http://localhost:2323/?cmd=restartApp&password=${encodeURIComponent(password)}&type=json`;
     logger.info('Reiniciando dispositivo via Fully Kiosk Remote Admin');
 
 

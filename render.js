@@ -55,9 +55,18 @@ WindoorPlayer.render = (function () {
 
   // ---------- proof of play ----------
 
+  /**
+   * Fecha a exibição do item que estava no ar. O bucket do `playlog` precisa da zona e da
+   * playlist, não só do conteúdo: o mesmo conteúdo pode rodar em duas zonas ao mesmo tempo
+   * e são exibições distintas no histórico.
+   */
   function endDisplay(state) {
-    if (state.displayed && state.startedAt && WindoorPlayer.proofOfPlay) {
-      WindoorPlayer.proofOfPlay.report(state.displayed, Date.now() - state.startedAt);
+    if (state.displayed && state.startedAt && WindoorPlayer.playlog) {
+      const zone = feed && feed.zones.find((z) => z.position === state.position);
+      WindoorPlayer.playlog.report(state.displayed, Date.now() - state.startedAt, {
+        zone: state.position,
+        playlistId: zone && zone.playlist ? zone.playlist.id : null,
+      });
     }
     state.displayed = null;
     state.startedAt = null;
@@ -92,6 +101,7 @@ WindoorPlayer.render = (function () {
       zoneStates.set(zone.position, {
         el,
         emptyEl: empty,
+        position: zone.position,
         index: 0,
         timer: null,
         displayed: null,
@@ -121,6 +131,12 @@ WindoorPlayer.render = (function () {
 
   // ---------- exibição de um item ----------
 
+  /**
+   * `crossOrigin = 'anonymous'` é o que permite a recomposição da tela (seção 2.3 do
+   * documento de evidências) desenhar a mídia num canvas. Hoje o `src` é um `blob:` vindo
+   * do Cache Storage, que já é same-origin e não "tainta" o canvas; o atributo é a garantia
+   * de que isso continue valendo se algum dia a mídia for apontada direto para o R2.
+   */
   function createMediaElement(item) {
     if (item.type === 'video') {
       const video = document.createElement('video');
@@ -128,10 +144,12 @@ WindoorPlayer.render = (function () {
       video.autoplay = true;
       video.playsInline = true;
       video.preload = 'auto';
+      video.crossOrigin = 'anonymous';
       return video;
     }
     const img = document.createElement('img');
     img.alt = '';
+    img.crossOrigin = 'anonymous';
     return img;
   }
 
@@ -208,6 +226,10 @@ WindoorPlayer.render = (function () {
     endDisplay(state);
     state.displayed = item;
     state.startedAt = Date.now();
+
+    // Primeira exibição deste conteúdo no dia rende uma captura de evidência. O módulo
+    // decide se é a primeira (e espera o item assentar na tela antes do print).
+    if (WindoorPlayer.capture) WindoorPlayer.capture.onItemShown(item);
   }
 
   // ---------- loop por zona ----------
@@ -609,6 +631,9 @@ WindoorPlayer.render = (function () {
     if (!next) return;
     lastTickMs = Date.now();
 
+    // Primeira carga não é "mudança de configuração": quem cobre o início é o
+    // `first_play` do primeiro item, não um gatilho de playlist/layout alterado.
+    const hadFeed = Boolean(feed);
     const layoutChanged = !feed || feed.layout !== next.layout;
     const unchangedZones = !layoutChanged && next.zones.every((zone) => sameSequence(zone.position, zone));
 
@@ -639,6 +664,13 @@ WindoorPlayer.render = (function () {
 
     feed = next;
     next.zones.forEach((zone) => startZone(zone.position));
+
+    // Evidência de que a troca de playlist/layout de fato chegou à tela. Dispara depois
+    // do render da configuração nova (seção 2.2), e o próprio módulo respeita o
+    // intervalo mínimo entre capturas automáticas.
+    if (hadFeed && WindoorPlayer.capture) {
+      WindoorPlayer.capture.onConfigChanged(layoutChanged ? 'layout_changed' : 'playlist_changed');
+    }
   }
 
   function showFallback() { showView('fallback'); }
@@ -658,6 +690,71 @@ WindoorPlayer.render = (function () {
   }
 
   function lastTickAt() { return lastTickMs; }
+
+  /**
+   * Estado da tela para as evidências de exibição: o que está no ar em cada zona, onde
+   * cada zona está desenhada e o texto atual da barra. É o único lugar que conhece o DOM
+   * do player — o `capture.js` usa isto tanto para montar os metadados da captura quanto
+   * para recompor a tela num canvas quando o print real do Fully não sai.
+   *
+   * As posições vêm de `getBoundingClientRect()` relativas ao `#content`, então a
+   * recomposição respeita o layout real (fullscreen ou duas zonas empilhadas) sem
+   * reimplementar o CSS.
+   */
+  function captureSnapshot() {
+    const rootEl = document.getElementById('content');
+    const rootRect = rootEl
+      ? rootEl.getBoundingClientRect()
+      : { left: 0, top: 0, width: 0, height: 0 };
+    const relative = (rect) => ({
+      x: rect.left - rootRect.left,
+      y: rect.top - rootRect.top,
+      width: rect.width,
+      height: rect.height,
+    });
+
+    const zones = [];
+    zoneStates.forEach((state, position) => {
+      const zone = feed && feed.zones.find((z) => z.position === position);
+      zones.push({
+        position,
+        playlistId: zone && zone.playlist ? zone.playlist.id : null,
+        playlistVersion: zone && zone.playlist && zone.playlist.version != null ? zone.playlist.version : null,
+        item: state.displayed,
+        index: state.displayed ? state.index : null,
+        mediaEl: state.currentMediaEl,
+        rect: state.el ? relative(state.el.getBoundingClientRect()) : null,
+      });
+    });
+
+    const barEl = document.getElementById('info-bar');
+    const barVisible = Boolean(barEl && barEl.style.display !== 'none');
+    const textOf = (id) => {
+      const el = document.getElementById(id);
+      return el ? el.textContent.trim() : '';
+    };
+
+    return {
+      width: Math.round(rootRect.width),
+      height: Math.round(rootRect.height),
+      layout: feed ? feed.layout : 'fullscreen',
+      zones,
+      infoBar: {
+        enabled: Boolean(feed && feed.infoBar && feed.infoBar.enabled),
+        rect: barVisible ? relative(barEl.getBoundingClientRect()) : null,
+        // Na recomposição a barra é redesenhada como texto: o horário/data da esquerda e
+        // o item do centro que estiver no ar (cotação, clima ou recado).
+        left: infoBarClockShowDate ? textOf('info-bar-date') : textOf('info-bar-clock'),
+        center: textOf('info-bar-center'),
+        logo: 'Windoor',
+      },
+      // Só com vídeo no ar um print quase todo preto é considerado falha: é o sintoma do
+      // overlay de hardware de alguns TV box (seção 2.1).
+      hasVideoPlaying: zones.some(
+        (z) => z.mediaEl && z.mediaEl.tagName === 'VIDEO' && !z.mediaEl.paused && !z.mediaEl.ended,
+      ),
+    };
+  }
 
   /** Resumo para o heartbeat diagnosticar "barra sem itens na tela" (seção 6.5). */
   function infoBarSummary() {
@@ -693,6 +790,7 @@ WindoorPlayer.render = (function () {
     infoBarWeatherLocation,
     startLoop,
     currentContent,
+    captureSnapshot,
     infoBarSummary,
     showFallback,
     hideFallback,

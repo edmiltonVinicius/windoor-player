@@ -56,9 +56,39 @@ origem em `PLAYER_ORIGINS` (CORS e socket).
 
 ## Android (TV Box / Android TV)
 
-1. Instale o **Fully Kiosk Browser**.
-2. "Start URL" = `https://player.windoor.com/?api=https://api.windoor.com/v1`.
-3. Ative "Start on boot", "Kiosk mode" e "Auto reload on connection error".
+Este é o alvo de produção, e o único em que a **captura de tela real** funciona.
+
+1. Instale o **Fully Kiosk Browser** e ative a licença **PLUS** (paga, por dispositivo).
+   Sem PLUS não existe `getScreenshotPngBase64()`: o histórico passa a mostrar só
+   capturas *Recompostas*.
+2. *Start URL* = `https://player.windoor.com/?api=https://api.windoor.com/v1`.
+3. *Advanced Web Settings → Enable JavaScript Interface* = **ON**.
+   É o que injeta `window.fully` na página; sem isso não há print nem `restartApp`.
+4. *Advanced Web Settings → URL Whitelist* = **só o domínio do player**.
+   A interface JS dá acesso ao dispositivo — ela não pode valer para outras páginas.
+5. *Remote Administration*: ligado, com a senha que o painel mostra na tela do player
+   (card "Fully Kiosk Browser"). Detalhes em [`../fully.md`](../fully.md).
+6. Ative "Start on boot", "Kiosk mode" e "Auto reload on connection error", e desligue
+   suspensão/economia de energia da tela.
+
+### Checklist de bancada (fazer em cada modelo novo de TV box)
+
+O print do Fully é feito pelo sistema, e alguns aparelhos desenham vídeo em **overlay de
+hardware** — a imagem sai preta justamente no quadro do vídeo. O player detecta isso
+(amostra os pixels e, com vídeo no ar, trata >98% quase preto como falha) e cai para a
+recomposição, mas é melhor saber antes de instalar no cliente.
+
+| Teste | O que verificar no painel (Histórico → Ver captura) |
+| --- | --- |
+| Playlist só com imagem | captura chega com badge **Tela real** |
+| Playlist com vídeo | **Tela real** também. Se vier **Recomposta** com motivo `black_frame`, este modelo tem overlay de hardware |
+| Barra de informações ligada | a barra aparece na captura (horário/data e o item do centro) |
+| 2 h desconectado da rede | ao religar, as capturas acumuladas sobem e aparecem com **Recebida X depois** |
+
+Para exercitar o caminho "tela real" num navegador comum, sem TV box, abra o player com
+`?fakeFully=1` (só desenvolvimento): um PNG sintético entra no lugar do print do Fully.
+Sem esse parâmetro, o navegador cai na recomposição — que é justamente o fallback que
+precisa ser testado.
 
 ## Operação e manutenção
 
@@ -78,6 +108,7 @@ origem em `PLAYER_ORIGINS` (CORS e socket).
 | `change_url` | navega para outra URL `http(s)` (outros esquemas são recusados) |
 | `restart` | o navegador **não** reinicia o dispositivo. O player só confirma o recebimento e repassa a `window.WindoorKiosk.restart()` se o agente de kiosk nativo expuser essa função |
 | `update_version` | idem: quem baixa/instala nova versão é o agente nativo ou o cache do service worker na próxima publicação |
+| `screenshot` | captura a tela na hora e envia como evidência. Diferente dos outros, a confirmação só sai **depois** do upload, levando o `screenshotId` — é com ele que o painel exibe a imagem. Player offline nem recebe o comando (o painel recusa com "player offline") |
 
 ## Watchdog: JS vs. nativo
 

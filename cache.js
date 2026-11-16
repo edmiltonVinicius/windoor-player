@@ -2,9 +2,16 @@ window.WindoorPlayer = window.WindoorPlayer || {};
 
 WindoorPlayer.cache = (function () {
   const DB_NAME = 'windoor-player';
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
   const STORE = 'contents';
   const QUOTES_STORE = 'quotes';
+  // v3: evidências de exibição. `SHOTS_STORE` é a fila de capturas pendentes de envio
+  // (cada item carrega o próprio Blob); `EVIDENCE_STORE` guarda documentos pequenos de
+  // estado — o conjunto `first_play` do dia e os buckets de proof of play ainda não
+  // confirmados pelo servidor. Ficam no mesmo banco do feed para haver um único dono do
+  // schema, mas em stores separados: `saveFeed` dá `clear()` no store de conteúdos.
+  const SHOTS_STORE = 'screenshotQueue';
+  const EVIDENCE_STORE = 'evidence';
   // v1 só guardava imagem; vídeo agora também é imutável (uma key nunca é reaproveitada,
   // seção 0 do guia de storage), então cabe no mesmo cache-first. Nome novo para que o
   // `activate` do service worker apague o cache antigo sem precisar de migração.
@@ -29,6 +36,13 @@ WindoorPlayer.cache = (function () {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
         if (!db.objectStoreNames.contains(QUOTES_STORE)) db.createObjectStore(QUOTES_STORE, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(SHOTS_STORE)) {
+          const shots = db.createObjectStore(SHOTS_STORE, { keyPath: 'id' });
+          // A fila é sempre varrida em ordem de captura: o mais antigo sai primeiro no
+          // envio e é o primeiro a ser descartado quando o teto é atingido.
+          shots.createIndex('capturedAt', 'capturedAt');
+        }
+        if (!db.objectStoreNames.contains(EVIDENCE_STORE)) db.createObjectStore(EVIDENCE_STORE, { keyPath: 'id' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -115,6 +129,73 @@ WindoorPlayer.cache = (function () {
     });
   }
 
+  // ---------- evidências: fila de capturas ----------
+
+  // Cada item: `{ id, capturedAt (ms), bytes, blob, metadata, attempt, nextAttemptAt, storageKey }`.
+  // O `id` é gerado no player e é o mesmo enviado ao servidor, o que torna o reenvio
+  // idempotente — por isso a remoção só acontece depois do 200/201.
+
+  async function enqueueScreenshot(item) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(SHOTS_STORE, 'readwrite');
+      tx.objectStore(SHOTS_STORE).put(item);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+
+  /** Fila inteira, da captura mais antiga para a mais nova. */
+  async function listScreenshots() {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(SHOTS_STORE, 'readonly');
+      const req = tx.objectStore(SHOTS_STORE).index('capturedAt').getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+  }
+
+  async function deleteScreenshots(ids) {
+    if (!ids || ids.length === 0) return;
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(SHOTS_STORE, 'readwrite');
+      const store = tx.objectStore(SHOTS_STORE);
+      ids.forEach((id) => store.delete(id));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+
+  // ---------- evidências: documentos de estado ----------
+
+  // Dois documentos, por chave fixa: `firstPlay` (`{ date, contentIds }`, o conjunto do dia
+  // no fuso da unidade) e `playBuckets` (os buckets de proof of play ainda vivos).
+
+  async function readEvidence(key) {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(EVIDENCE_STORE, 'readonly');
+      const req = tx.objectStore(EVIDENCE_STORE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  }
+
+  async function saveEvidence(key, value) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(EVIDENCE_STORE, 'readwrite');
+      tx.objectStore(EVIDENCE_STORE).put({ ...value, id: key });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+
   // Cache-first: checa o Cache Storage pela URL exata; se não tiver, faz
   // fetch (`mode: 'cors'` explícito — resposta opaca não deixa saber se o
   // download deu certo nem quanto ocupou da cota — com EXTRA_HEADERS, por
@@ -176,9 +257,16 @@ WindoorPlayer.cache = (function () {
     getCachedMedia,
     preloadMedia,
     pruneMedia,
+    enqueueScreenshot,
+    listScreenshots,
+    deleteScreenshots,
+    readEvidence,
+    saveEvidence,
     DB_NAME,
     STORE,
     QUOTES_STORE,
+    SHOTS_STORE,
+    EVIDENCE_STORE,
     MEDIA_CACHE,
     FEED_KEY,
   };

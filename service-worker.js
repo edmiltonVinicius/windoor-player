@@ -1,4 +1,7 @@
-const CACHE_NAME = 'windoor-shell-v3';
+// v4: `proof-of-play.js` saiu (virou `playlog.js`), entraram `capture.js` e `kiosk.js`.
+// O nome muda junto com a lista: o `activate` apaga o shell antigo, senão um
+// `index.html` em cache continuaria pedindo um arquivo que não existe mais.
+const CACHE_NAME = 'windoor-shell-v4';
 // Nome deve bater com `MEDIA_CACHE` em cache.js — é a mesma Cache Storage, só que
 // `cache.js` grava direto, sem passar pelo `fetch` deste worker (mídia é cross-origin).
 const MEDIA_CACHE = 'windoor-media-v1';
@@ -13,7 +16,9 @@ const SHELL_FILES = [
   './logger.js',
   './heartbeat.js',
   './commands.js',
-  './proof-of-play.js',
+  './kiosk.js',
+  './playlog.js',
+  './capture.js',
   './wakelock.js',
   './watchdog.js',
   './pairing.js',

@@ -39,6 +39,8 @@ const FEED_FULLSCREEN = {
       { id: 'ib-4', type: 'text', text: 'Manutenção do elevador social sábado' },
     ],
   },
+  // Intervalo curto de propósito: no mock dá para ver a captura periódica acontecer.
+  evidenceSettings: { screenshotIntervalMinutes: 1 },
   skippedItems: 0,
 };
 
@@ -63,7 +65,8 @@ function send(res, status, payload) {
 const cors = () => ({
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  // PUT entra por causa do upload de captura direto na "URL pré-assinada" simulada.
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
 });
 const ok = (res, data) => send(res, 200, { success: true, data, errors: [], meta: { traceId: traceId() } });
 const fail = (res, status, code, message) =>
@@ -129,7 +132,44 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  if (route === 'POST /v1/player/heartbeat' || route === 'POST /v1/player/proof-of-play' || route === 'POST /v1/player/logs') {
+  // Evidências: devolve uma URL de upload que aponta para este próprio mock, para o
+  // caminho completo (upload-url → PUT → metadados) rodar sem R2/MinIO.
+  if (route === 'POST /v1/player/screenshots/upload-url') {
+    const body = await readBody(req);
+    console.log('[mock]', route, body);
+    return ok(res, {
+      url: `http://localhost:${PORT}/v1/mock-upload/${body.id}`,
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/webp' },
+      storageKey: `clients/mock/screenshots/${body.id}.webp`,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    });
+  }
+
+  if (route.startsWith('PUT /v1/mock-upload/')) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    console.log('[mock] PUT captura recebida', { bytes: Buffer.concat(chunks).length });
+    return send(res, 204);
+  }
+
+  if (route === 'POST /v1/player/screenshots') {
+    const body = await readBody(req);
+    console.log('[mock]', route, { id: body.id, trigger: body.trigger, method: body.method, zones: body.zones });
+    return send(res, 201, { success: true, data: { id: body.id }, errors: [], meta: {} });
+  }
+
+  if (route === 'POST /v1/player/play-events') {
+    const body = await readBody(req);
+    console.log('[mock]', route, { buckets: (body.buckets || []).length });
+    return send(res, 204);
+  }
+
+  if (
+    route === 'POST /v1/player/heartbeat' ||
+    route === 'POST /v1/player/events' ||
+    route === 'POST /v1/player/logs'
+  ) {
     console.log('[mock]', route, await readBody(req));
     return send(res, 204);
   }

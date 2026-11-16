@@ -16,6 +16,16 @@
 
   const DEFAULT_INFO_BAR = { enabled: false, rotationSeconds: 10, items: [] };
   const DEFAULT_ANNOUNCEMENTS = { enabled: false, everyNMedia: 3, durationSeconds: 15, items: [] };
+  /** Config de evidências do cliente (contrato §1.6). Faixa aceita no painel: 10–240 min. */
+  const DEFAULT_SCREENSHOT_INTERVAL_MINUTES = 30;
+
+  function normalizeEvidenceSettings(raw) {
+    const minutes = Number(raw && raw.screenshotIntervalMinutes);
+    return {
+      screenshotIntervalMinutes:
+        Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : DEFAULT_SCREENSHOT_INTERVAL_MINUTES,
+    };
+  }
 
   /** Vencido = tem validade e ela já passou. Sem validade, vale para sempre. */
   function isPlayable(item, now) {
@@ -223,6 +233,8 @@
           result.push({
             id: `announcement:${source.id}:${slot}`,
             contentId: source.contentId,
+            // Identifica o comunicado nos metadados da captura (`ScreenshotZone.announcementId`).
+            announcementId: source.id,
             name: '',
             type: source.type,
             url: source.url,
@@ -253,6 +265,7 @@
         zones: [{ position: 'full', playlist: null, items: [] }],
         infoBar: { ...DEFAULT_INFO_BAR },
         announcements: { ...DEFAULT_ANNOUNCEMENTS },
+        evidenceSettings: normalizeEvidenceSettings(null),
         skippedItems: 0,
         legacy: true,
       };
@@ -275,7 +288,15 @@
         .filter((item) => !item.isAnnouncement);
       return {
         position,
-        playlist: zone.playlist && zone.playlist.id ? { id: zone.playlist.id, name: zone.playlist.name || '' } : null,
+        // `version` entra nos metadados da captura: a evidência precisa dizer qual versão
+        // da playlist estava no ar, não só qual playlist.
+        playlist: zone.playlist && zone.playlist.id
+          ? {
+            id: zone.playlist.id,
+            name: zone.playlist.name || '',
+            version: Number.isFinite(Number(zone.playlist.version)) ? Number(zone.playlist.version) : null,
+          }
+          : null,
         items: interleaveAnnouncements(items, announcements),
       };
     });
@@ -286,6 +307,7 @@
       zones,
       infoBar: normalizeInfoBar(feed.infoBar),
       announcements,
+      evidenceSettings: normalizeEvidenceSettings(feed.evidenceSettings),
       skippedItems: Number(feed.skippedItems) || 0,
       legacy: false,
     };
@@ -316,6 +338,7 @@
     interleaveAnnouncements,
     normalizeInfoBar,
     normalizeInfoBarItem,
+    normalizeEvidenceSettings,
     isInfoBarItemEligible,
     isPlayable,
     mediaUrls,

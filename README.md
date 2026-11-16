@@ -21,7 +21,9 @@ npm run mock      # node test/mock-server.js → http://localhost:4000/v1
 ```
 
 O mock implementa as rotas `/v1/player/*` com o envelope da spec (sem socket.io).
-Ele imprime no console cada `pair`, `heartbeat`, `proof-of-play` e `logs` recebido.
+Ele imprime no console cada `pair`, `heartbeat`, `play-events`, `screenshots` e `logs`
+recebido, e simula a URL pré-assinada de upload apontando para si mesmo — o caminho
+completo da captura (upload-url → PUT → metadados) roda sem R2/MinIO.
 Para usar outra porta: `PORT=5000 npm run mock`.
 
 Para apontar para o backend real em vez do mock, pule este passo e troque a URL
@@ -109,11 +111,12 @@ orquestrador e entra por último.
 | `api.js` | único ponto de rede: `Authorization`, `EXTRA_HEADERS`, desembrulha o envelope, lança `ApiError`, dispara `windoor:unauthorized` / `windoor:inactive` |
 | `schedule.js` | período e dayparting (funções puras, UMD, testadas em Node) |
 | `pairing.js` | tela e fluxo de pareamento (visor, teclado físico e na tela, erros, trava de 60 s) |
-| `cache.js` | IndexedDB `windoor-player`/`contents` + Cache Storage `windoor-media-v1` (cache-first para imagem e vídeo, pré-carregamento, poda) |
-| `render.js` | loop de exibição, cross-fade entre duas camadas `<img>`, `showView`, fallback, proof of play ao sair de cena |
+| `cache.js` | IndexedDB `windoor-player` (`contents`, `quotes`, `screenshotQueue`, `evidence`) + Cache Storage `windoor-media-v1` (cache-first para imagem e vídeo, pré-carregamento, poda) |
+| `render.js` | loop de exibição, cross-fade entre duas camadas `<img>`, `showView`, fallback, proof of play ao sair de cena, `captureSnapshot()` (estado da tela para as evidências) |
 | `logger.js` | console sempre; remoto só com token, limitado a 20 logs/min, `context` truncado em 8 KB |
 | `heartbeat.js` | `POST /player/heartbeat` a cada 30 s |
-| `proof-of-play.js` | `POST /player/proof-of-play` com a duração real de exibição |
+| `playlog.js` | proof of play agregado: soma por conteúdo/playlist/zona/hora e envia totais absolutos a cada 5 min (`POST /player/play-events`) |
+| `capture.js` | capturas de evidência: print real via `window.fully`, recomposição em canvas quando falha, fila offline no IndexedDB e upload pré-assinado |
 | `commands.js` | `command` do socket + `command:ack`; `change_url` só aceita `http(s)` |
 | `wakelock.js` | Wake Lock API (falha em silêncio onde não existe) |
 | `watchdog.js` | recarrega a página se o loop travar; só é armado depois que o loop começou |
@@ -133,9 +136,17 @@ conecta na **origem**. Todas as respostas (exceto `204`) vêm no envelope
 | --- | --- | --- | --- |
 | `POST /player/pair` | — | `{ code }` | `{ playerId, deviceToken, playerName, unitName, clientName }` |
 | `GET /player/contents` | Bearer | — | `Content[]` (já filtrada no servidor) |
-| `POST /player/heartbeat` | Bearer | `{ playerVersion, lastContentId, memoryUsageMb }` | 204 |
-| `POST /player/proof-of-play` | Bearer | `{ contentId, durationMs }` | 204 |
+| `POST /player/heartbeat` | Bearer | `{ playerVersion, lastContentId, memoryUsageMb, infoBar, capture }` | 204 |
+| `POST /player/play-events` | Bearer | `{ buckets: [{ contentId, playlistId, zone, hourBucket, plays, durationMs, firstAt, lastAt }] }` | 204 |
+| `POST /player/screenshots/upload-url` | Bearer | `{ id, bytes, contentType }` | `{ url, method, headers, storageKey, expiresAt }` |
+| `POST /player/screenshots` | Bearer | metadados da captura (`id`, `capturedAt`, `trigger`, `method`, `sha256`, `zones`, …) | `{ id }` (201, ou 200 se reenviado) |
+| `POST /player/events` | Bearer | `{ events: [{ type, occurredAt, data }] }` | 204 |
 | `POST /player/logs` | Bearer | `{ level, message, context, timestamp }` | 204 |
+
+As capturas são **idempotentes pelo `id`**, gerado no player: reenviar o mesmo `id`
+devolve 200 sem duplicar, e é isso que torna a fila offline segura. Os buckets de
+exibição carregam **totais absolutos**, não incrementos — o servidor faz upsert com
+`GREATEST`, então reenviar não duplica nem regride.
 
 `Content`: `{ id, title, imageUrl, price, category, periodStart, periodEnd,
 daypartingStart, daypartingEnd, createdAt, updatedAt }`. Cada upload gera um UUID

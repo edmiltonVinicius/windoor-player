@@ -13,7 +13,7 @@ WindoorPlayer.heartbeat = (function () {
   }
 
   async function send() {
-    const { config, api, render, logger } = WindoorPlayer;
+    const { config, api, render, logger, capture } = WindoorPlayer;
     if (!config.getToken()) return;                 // só depois de pareado
     const content = render && render.currentContent ? render.currentContent() : null;
 
@@ -24,6 +24,9 @@ WindoorPlayer.heartbeat = (function () {
         lastContentId: content ? content.contentId || content.id : null,
         memoryUsageMb: memoryUsageMb(),
         infoBar: render && render.infoBarSummary ? render.infoBarSummary() : undefined,
+        // Alimenta o KPI "players sem captura há 2 h+" e o aviso "Fully não detectado"
+        // do painel — é por aqui que o suporte descobre device mal configurado.
+        capture: capture && capture.state ? capture.state() : undefined,
       });
     } catch (error) {
       // Sem internet é esperado às vezes — não vira erro ruidoso.

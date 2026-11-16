@@ -16,7 +16,7 @@ foi escolhido o caminho mais simples, sem mudar contrato de API.
    mapa de erros da seção 3.2, em vez de ficar embutida no handler.
 4. **Logs remotos antes do pareamento** são apenas de console: sem `deviceToken`
    não há rota autenticada, então `logger` não tenta `POST /player/logs`.
-   Mesma regra em `heartbeat` e `proof-of-play`.
+   Mesma regra em `heartbeat`, `playlog` e `capture`.
 5. **`loadInitial` com `403`** não escreve a tela de fallback por cima da tela
    `#inactive` (o evento `windoor:inactive` já assumiu a tela); apenas retorna.
 6. **`connect_error` que não seja `unauthorized`** só muda o status para

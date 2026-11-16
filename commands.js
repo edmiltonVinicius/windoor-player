@@ -8,7 +8,13 @@ WindoorPlayer.commands = (function () {
 
   function execute(cmd, socket) {
     const { logger } = WindoorPlayer;
-    const ack = (status) => { try { socket.emit('command:ack', { id: cmd && cmd.id, status }); } catch (_) {} };
+    const ack = (status, result) => {
+      try {
+        const body = { id: cmd && cmd.id, status };
+        if (result) body.result = result;
+        socket.emit('command:ack', body);
+      } catch (_) {}
+    };
     if (!cmd || !cmd.type) { ack('failed'); return; }
 
     logger.info('Comando remoto recebido', { id: cmd.id, type: cmd.type });
@@ -41,6 +47,29 @@ WindoorPlayer.commands = (function () {
           location.reload();
         }, 200);
         break;
+
+      // "Capturar tela agora" do painel. Ao contrário dos demais, o ack só pode sair
+      // DEPOIS da captura, carregando o `screenshotId` — é com ele que o painel fecha o
+      // ciclo e mostra a imagem. Por isso não cai no `default`, que confirma na hora.
+      case 'screenshot': {
+        const { capture } = WindoorPlayer;
+        if (!capture) { logger.warn('Comando screenshot sem módulo de captura', { id: cmd.id }); ack('failed'); return; }
+        capture.capture('on_demand', { commandId: cmd.id, awaitUpload: true })
+          .then((screenshotId) => {
+            if (!screenshotId) {
+              logger.warn('Captura sob demanda não gerou evidência', { id: cmd.id });
+              ack('failed');
+              return;
+            }
+            logger.info('Captura sob demanda concluída', { id: cmd.id, screenshotId });
+            ack('acknowledged', { screenshotId });
+          })
+          .catch((error) => {
+            logger.error('Captura sob demanda falhou', { id: cmd.id, error: error.message });
+            ack('failed');
+          });
+        break;
+      }
 
       // 'restart' (reiniciar o dispositivo) e 'update_version' (baixar nova
       // versão) não existem no navegador: quem executa é o agente de kiosk

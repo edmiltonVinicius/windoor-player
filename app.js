@@ -1,8 +1,10 @@
 // Orquestrador: configuração → identidade → estado inicial → tempo real.
 (async function start() {
-  const { config, api, cache, feed, render, logger, heartbeat, commands, proofOfPlay, wakelock, watchdog, pairing, unpair } = WindoorPlayer;
+  const { config, api, cache, feed, render, logger, heartbeat, commands, playlog, capture, wakelock, watchdog, pairing, unpair } = WindoorPlayer;
 
   let inactiveRetryId = null;
+  /** Itens exibíveis no último feed aplicado — decide a captura inicial do player novo. */
+  let lastFeedItems = 0;
 
   // 0) estado terminal de configuração: sem API_URL não há nada a fazer.
   if (!config.API_URL) { render.showView('setup-error'); return; }
@@ -92,16 +94,27 @@
       cache.preloadMedia(normalized);
       render.setStatus('online');
       render.setFeed(normalized);
+      applyEvidenceSettings(normalized);
     } catch (error) {
       if (error && error.status === 403) return;            // tela #inactive cuida disso
       // Offline: o feed salvo pode conter conteúdo que venceu desde então.
       const cached = feed.normalizeFeed(await cache.readFeed());
       render.setStatus('offline (usando cache local)');
       render.setFeed(cached);
+      applyEvidenceSettings(cached);
       logger.error('Falha ao carregar o feed da API, usando cache local', {
         error: error.message, code: error.code, totalItens: feed.totalItems(cached),
       });
     }
+  }
+
+  // 4.1) evidências de exibição: o intervalo de captura vem na config do cliente, junto
+  // com o feed (e também pelo socket, quando a equipe Windoor muda no painel).
+  function applyEvidenceSettings(normalized) {
+    if (!normalized) return;
+    lastFeedItems = feed.totalItems(normalized);
+    if (!capture || !normalized.evidenceSettings) return;
+    capture.setIntervalMinutes(normalized.evidenceSettings.screenshotIntervalMinutes);
   }
 
   // 5) tempo real
@@ -112,7 +125,13 @@
     }
     const socket = io(config.SOCKET_URL, { auth: { token: config.getToken() }, extraHeaders: config.EXTRA_HEADERS });
 
-    socket.on('connect', () => { render.setStatus('online'); refresh(); });
+    socket.on('connect', () => {
+      render.setStatus('online');
+      refresh();
+      // Voltou a rede: manda o que acumulou offline (seções 2.5 e 2.6).
+      if (capture) capture.flush();
+      if (playlog) playlog.flush();
+    });
     socket.on('disconnect', () => render.setStatus('offline (usando cache local)'));
     socket.on('connect_error', (e) => {
       if (e && e.message === 'unauthorized') window.dispatchEvent(new CustomEvent('windoor:unauthorized'));
@@ -125,7 +144,15 @@
       cache.pruneMedia(normalized);
       cache.preloadMedia(normalized);
       render.setFeed(normalized);
+      applyEvidenceSettings(normalized);
       refreshWeather();   // o local do clima pode ter mudado junto com a barra
+    });
+    socket.on('client.evidence_settings.updated', (payload) => {
+      if (!capture || !payload) return;
+      logger.info('Intervalo de captura atualizado pelo painel', {
+        minutos: payload.screenshotIntervalMinutes,
+      });
+      capture.setIntervalMinutes(payload.screenshotIntervalMinutes);
     });
     socket.on('info_bar.weather.updated', async (payload) => {
       // O evento vai para todos os players; cada um só aplica o do seu local.
@@ -158,6 +185,7 @@
       cache.preloadMedia(normalized);
       render.setStatus('online');
       render.setFeed(normalized);
+      applyEvidenceSettings(normalized);
       return true;
     } catch (_) { return false; }
   }
@@ -177,6 +205,14 @@
   await loadQuotesFromCache();
   await loadWeatherFromCache();
   await loadInitial();
+
+  // 7) evidências: recupera o que não foi confirmado antes do último reload e volta a
+  // contar/capturar. `bootstrap` também cobre o player recém-pareado (seção 2.1.1): com
+  // playlist, o `first_play` do primeiro item dispara sozinho; sem nenhum item, ele força
+  // uma captura para o player aparecer no histórico de qualquer forma.
+  if (playlog) { await playlog.hydrate(); playlog.start(); }
+  if (capture) await capture.bootstrap(lastFeedItems > 0);
+
   connectSocket();
   render.startLoop();
   heartbeat.start();

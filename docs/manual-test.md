@@ -25,5 +25,9 @@ e o player servido por HTTP (`npx serve .` ou qualquer servidor estático —
 | 16 | Watchdog não interfere no pareamento | ficar 2 min na tela de pareamento | nenhuma recarga |
 | 17 | Repareamento por técnico | abrir com `?unpair=1` | volta à tela de pareamento |
 | 18 | Offline total (service worker) | carregar uma vez, desligar a rede, recarregar | o shell sobe do cache e mostra conteúdo em cache ou o fallback |
-| 19 | Proof of play / heartbeat | olhar o console do mock | `POST /v1/player/proof-of-play` a cada troca e `heartbeat` a cada 30 s |
+| 19 | Proof of play / heartbeat | olhar o console do mock | `POST /v1/player/play-events` a cada 5 min com os totais por conteúdo/hora, e `heartbeat` a cada 30 s |
+| 19a | Captura recomposta | navegador comum (sem `window.fully`) | `upload-url` → `PUT` → `POST /v1/player/screenshots` com `method: "recomposed"` |
+| 19b | Captura de tela real | abrir com `?fakeFully=1` | mesma sequência, com `method: "device"` |
+| 19c | Captura sob demanda | enviar o comando `screenshot` pelo painel | a confirmação só chega **depois** do upload, com `result.screenshotId` |
+| 19d | Fila offline | desligar a rede, esperar 2 capturas, religar | as capturas acumuladas sobem na reconexão, sem duplicar |
 | 20 | Telas de sistema em hardware | abrir `player-teste.html` no dispositivo | os 5 estados legíveis à distância, sem corte nem scroll |

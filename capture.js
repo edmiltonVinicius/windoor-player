@@ -32,6 +32,8 @@
   const BLACK_LUMA = 10;
   const BLACK_RATIO = 0.98;
   const FIRST_PLAY_KEY = 'firstPlay';
+  /** Mesmo mecanismo do `FIRST_PLAY_KEY`, mas por `newsId` (seção 6.4 do plano de Notícias). */
+  const NEWS_FIRST_PLAY_KEY = 'newsFirstPlay';
   /** `capture_black_frame` é agregado: no máximo 1 por hora (seção 2.7). */
   const BLACK_FRAME_LOG_MS = 60 * 60 * 1000;
   const DEFAULT_INTERVAL_MINUTES = 30;
@@ -130,27 +132,46 @@
     return { state: { date: today, contentIds: current.contentIds.concat([contentId]) }, isFirst: true };
   }
 
-  /** As zonas no formato `ScreenshotZone` do contrato (§1.2). */
+  /**
+   * As zonas no formato `ScreenshotZone` do contrato (§1.2), estendido para notícia
+   * (plano "Trilha D — Player", seção 6.4): quando o item no ar tem `.news` (zona de
+   * notícia+comunicado composta em `feed.js`), a mesma posição física gera uma
+   * entrada **adicional** `{ position, kind: 'news', newsId, fallback }` — as duas
+   * metades da tela (comunicado e notícia) são evidenciadas separadamente, mesmo
+   * ocupando o mesmo `position` do layout principal.
+   */
   function zonesFromSnapshot(snapshot) {
-    return ((snapshot && snapshot.zones) || [])
-      .filter((zone) => zone && zone.item)
-      .map((zone) => {
-        const item = zone.item;
-        if (item.isAnnouncement) {
-          return {
-            position: zone.position,
-            kind: 'announcement',
-            announcementId: item.announcementId || null,
-          };
-        }
-        return {
+    const zones = [];
+    ((snapshot && snapshot.zones) || []).forEach((zone) => {
+      if (!zone || !zone.item) return;
+      const item = zone.item;
+
+      if (item.isAnnouncement) {
+        zones.push({
+          position: zone.position,
+          kind: 'announcement',
+          announcementId: item.announcementId || null,
+        });
+      } else {
+        zones.push({
           position: zone.position,
           playlistId: zone.playlistId || null,
           playlistVersion: zone.playlistVersion == null ? null : zone.playlistVersion,
           contentId: item.contentId || item.id,
           itemIndex: zone.index == null ? null : zone.index,
-        };
-      });
+        });
+      }
+
+      if (item.news) {
+        zones.push({
+          position: zone.position,
+          kind: 'news',
+          newsId: item.news.newsId || null,
+          fallback: Boolean(item.news.isFallback),
+        });
+      }
+    });
+    return zones;
   }
 
   function buildMetadata(input) {
@@ -207,6 +228,7 @@
     let intervalMinutes = DEFAULT_INTERVAL_MINUTES;
     let lastBlackFrameLogAtMs = 0;
     let firstPlayState = null;
+    let newsFirstPlayState = null;
 
     async function sendEvent(type, data) {
       if (!deps.sendEvents) return;
@@ -463,25 +485,52 @@
 
     // ---------------- gatilhos ----------------
 
-    /** Primeira exibição de cada conteúdo no dia, por player (seção 2.2). */
+    /**
+     * Primeira exibição de cada conteúdo no dia, por player (seção 2.2) — e, agora,
+     * também a primeira exibição de cada notícia no dia (seção 6.4 do plano de
+     * Notícias). Os dois contadores são independentes: um slot de comunicado com
+     * notícia composta (`item.news`, ver `feed.js`) pode disparar por conta da
+     * notícia mesmo sendo `isAnnouncement`, que por si só nunca dispara (comunicado
+     * não entra no proof of play de conteúdo).
+     */
     async function onItemShown(item) {
-      if (!item || item.isAnnouncement) return;
-      const contentId = item.contentId || item.id;
-      if (!contentId) return;
+      if (!item) return;
+      let shouldCapture = false;
 
-      if (firstPlayState === null && deps.loadState) {
-        try { firstPlayState = await deps.loadState(FIRST_PLAY_KEY); } catch (_) { firstPlayState = null; }
+      if (!item.isAnnouncement) {
+        const contentId = item.contentId || item.id;
+        if (contentId) {
+          if (firstPlayState === null && deps.loadState) {
+            try { firstPlayState = await deps.loadState(FIRST_PLAY_KEY); } catch (_) { firstPlayState = null; }
+          }
+          const today = todayInTimeZone(new Date(now()), deps.timeZone);
+          const result = markFirstPlay(firstPlayState, contentId, today);
+          firstPlayState = result.state;
+          if (result.isFirst) {
+            if (deps.saveState) {
+              try { await deps.saveState(FIRST_PLAY_KEY, result.state); } catch (_) { /* segue em memória */ }
+            }
+            shouldCapture = true;
+          }
+        }
       }
 
-      const today = todayInTimeZone(new Date(now()), deps.timeZone);
-      const result = markFirstPlay(firstPlayState, contentId, today);
-      firstPlayState = result.state;
-      if (!result.isFirst) return;
-
-      if (deps.saveState) {
-        try { await deps.saveState(FIRST_PLAY_KEY, result.state); } catch (_) { /* segue em memória */ }
+      if (item.news && item.news.newsId) {
+        if (newsFirstPlayState === null && deps.loadState) {
+          try { newsFirstPlayState = await deps.loadState(NEWS_FIRST_PLAY_KEY); } catch (_) { newsFirstPlayState = null; }
+        }
+        const today = todayInTimeZone(new Date(now()), deps.timeZone);
+        const result = markFirstPlay(newsFirstPlayState, item.news.newsId, today);
+        newsFirstPlayState = result.state;
+        if (result.isFirst) {
+          if (deps.saveState) {
+            try { await deps.saveState(NEWS_FIRST_PLAY_KEY, result.state); } catch (_) { /* segue em memória */ }
+          }
+          shouldCapture = true;
+        }
       }
-      await capture('first_play');
+
+      if (shouldCapture) await capture('first_play');
     }
 
     /** `kind`: `'playlist_changed'` ou `'layout_changed'`, depois do primeiro render novo. */
@@ -554,6 +603,7 @@
     TRIGGERS,
     BLACK_RATIO,
     FIRST_PLAY_KEY,
+    NEWS_FIRST_PLAY_KEY,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

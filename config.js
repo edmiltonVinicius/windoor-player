@@ -4,7 +4,10 @@ window.WindoorPlayer = window.WindoorPlayer || {};
 // <meta name="windoor-api-url">. Sem nenhuma delas, API_URL fica vazia e o
 // app mostra a tela de configuração — este módulo NUNCA redireciona.
 (function () {
-  const KEY = { api: 'windoor.apiUrl', token: 'windoor.deviceToken', player: 'windoor.player' };
+  const KEY = {
+    api: 'windoor.apiUrl', token: 'windoor.deviceToken', player: 'windoor.player',
+    newsPosition: 'windoor.newsPosition',
+  };
   const get = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
   const set = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
   const del = (k) => { try { localStorage.removeItem(k); } catch (_) {} };
@@ -26,7 +29,7 @@ window.WindoorPlayer = window.WindoorPlayer || {};
     PLAYER_VERSION: '2.0.0',
     CONTENT_DURATION_MS: 8000,
     TRANSITION_MS: 1000,
-    HEARTBEAT_INTERVAL_MS: 30000,
+    HEARTBEAT_INTERVAL_MS: 60000,
     REFRESH_INTERVAL_MS: 5 * 60 * 1000,
     // Barra de informações: horário/data alternam a cada 5 s; fuso fixo até existir `unit.timezone`.
     INFO_BAR_CLOCK_TICK_MS: 8000,
@@ -43,5 +46,14 @@ window.WindoorPlayer = window.WindoorPlayer || {};
     getPlayerInfo: () => { try { return JSON.parse(get(KEY.player) || 'null'); } catch (_) { return null; } },
     setPlayerInfo: (p) => set(KEY.player, JSON.stringify(p)),
     clearIdentity: () => { del(KEY.token); del(KEY.player); },
+    // `unit.newsPosition` ("top"|"bottom", seção 9.1 do plano de Notícias): vem embutido
+    // em `GET /player/config` (contrato `PUT /units/:id/announcement-settings`), igual
+    // às outras configurações de unidade já cacheadas aqui. Quem chama a API decide
+    // quando atualizar; este módulo só guarda/lê, no mesmo padrão de `getToken`/`setToken`.
+    getNewsPosition: () => { const v = get(KEY.newsPosition); return v === 'top' || v === 'bottom' ? v : null; },
+    setNewsPosition: (position) => {
+      if (position === 'top' || position === 'bottom') set(KEY.newsPosition, position);
+      else del(KEY.newsPosition);
+    },
   };
 })();

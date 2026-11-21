@@ -114,7 +114,7 @@ orquestrador e entra por último.
 | `cache.js` | IndexedDB `windoor-player` (`contents`, `quotes`, `screenshotQueue`, `evidence`) + Cache Storage `windoor-media-v1` (cache-first para imagem e vídeo, pré-carregamento, poda) |
 | `render.js` | loop de exibição, cross-fade entre duas camadas `<img>`, `showView`, fallback, proof of play ao sair de cena, `captureSnapshot()` (estado da tela para as evidências) |
 | `logger.js` | console sempre; remoto só com token, limitado a 20 logs/min, `context` truncado em 8 KB |
-| `heartbeat.js` | `POST /player/heartbeat` a cada 30 s |
+| `heartbeat.js` | `POST /player/heartbeat` a cada 60 s |
 | `playlog.js` | proof of play agregado: soma por conteúdo/playlist/zona/hora e envia totais absolutos a cada 5 min (`POST /player/play-events`) |
 | `capture.js` | capturas de evidência: print real via `window.fully`, recomposição em canvas quando falha, fila offline no IndexedDB e upload pré-assinado |
 | `commands.js` | `command` do socket + `command:ack`; `change_url` só aceita `http(s)` |

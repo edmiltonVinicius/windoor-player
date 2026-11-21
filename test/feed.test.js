@@ -275,8 +275,34 @@ test('normalizeAnnouncements descarta item sem url ou tipo desconhecido, e desli
   assert.strictEqual(result.items.length, 1);
   assert.strictEqual(result.items[0].contentId, 'cont-ann-1');
 
+  // `enabled` agora reflete só o toggle de cliente/unidade — sem itens ativos, ainda fica
+  // ligado pra permitir o conteúdo padrão entrar no lugar (seção 2.7 do documento de moldura).
   const empty = feed.normalizeAnnouncements({ enabled: true, everyNMedia: 3, durationSeconds: 20, items: [] });
-  assert.strictEqual(empty.enabled, false);
+  assert.strictEqual(empty.enabled, true);
+  assert.strictEqual(empty.fallback, null);
+});
+
+test('normalizeAnnouncements normaliza frame e fallback', () => {
+  const withFrame = feed.normalizeAnnouncements({
+    enabled: true,
+    everyNMedia: 3,
+    durationSeconds: 20,
+    items: [],
+    frame: { theme: 'light', unitName: 'Bela Vista (sede)' },
+    fallback: { mediaUrl: 'https://cdn/default.png', type: 'image', durationSeconds: 12, width: 1920, height: 1080 },
+  });
+  assert.deepStrictEqual(withFrame.frame, { theme: 'light', unitName: 'Bela Vista (sede)' });
+  assert.deepStrictEqual(withFrame.fallback, {
+    url: 'https://cdn/default.png',
+    type: 'image',
+    durationSeconds: 12,
+    width: 1920,
+    height: 1080,
+  });
+
+  const noFrame = feed.normalizeAnnouncements({ enabled: false, everyNMedia: 3, durationSeconds: 20, items: [] });
+  assert.deepStrictEqual(noFrame.frame, { theme: 'dark', unitName: '' });
+  assert.strictEqual(noFrame.fallback, null);
 });
 
 test('interleaveAnnouncements intercala a cada N itens, ciclando entre comunicados ativos', () => {
@@ -308,6 +334,25 @@ test('interleaveAnnouncements repete a playlist o suficiente quando ela é menor
   assert.deepStrictEqual(result.map((i) => i.id), ['i1', 'i2', 'i1', 'i2', 'i1', 'announcement:ann-1:0', 'i2']);
 });
 
+test('interleaveAnnouncements injeta o conteúdo padrão quando não há comunicado ativo', () => {
+  const items = [item({ id: 'i1' }), item({ id: 'i2' })];
+  const announcements = feed.normalizeAnnouncements({
+    enabled: true,
+    everyNMedia: 2,
+    durationSeconds: 20,
+    items: [],
+    fallback: { mediaUrl: 'https://cdn/default.png', type: 'video', durationSeconds: 12 },
+  });
+  const result = feed.interleaveAnnouncements(items, announcements);
+  assert.deepStrictEqual(result.map((i) => i.id), ['i1', 'i2', 'announcement:fallback:0']);
+  const fallbackItem = result[2];
+  assert.strictEqual(fallbackItem.isAnnouncement, true);
+  assert.strictEqual(fallbackItem.isFallback, true);
+  assert.strictEqual(fallbackItem.announcementId, null);
+  assert.strictEqual(fallbackItem.type, 'video');
+  assert.strictEqual(fallbackItem.durationSeconds, 12);
+});
+
 test('interleaveAnnouncements não muda nada sem comunicados ativos ou sem itens na zona', () => {
   const items = [item({ id: 'i1' }), item({ id: 'i2' })];
   const disabled = feed.normalizeAnnouncements({ enabled: false, everyNMedia: 1, durationSeconds: 20, items: [announcementRaw()] });
@@ -329,4 +374,70 @@ test('normalizeFeed intercala comunicados nas zonas e é idempotente sobre um fe
   // Simula o round-trip pelo cache local: normaliza de novo o feed já normalizado.
   const twice = feed.normalizeFeed(once, NOW);
   assert.deepStrictEqual(twice.zones[0].items.map((i) => i.id), once.zones[0].items.map((i) => i.id));
+});
+
+// ---------------------------------------------------------- attachNewsToAnnouncementSlots
+
+const newsRaw = (over = {}) => ({
+  id: 'news-1',
+  title: 'Título',
+  section: 'Economia',
+  imageUrl: 'https://cdn/news.jpg',
+  photoCredit: 'Fulano/Agência Brasil',
+  sourceName: 'Agência Brasil',
+  shortUrl: 'https://wdr.link/x',
+  ...over,
+});
+
+test('attachNewsToAnnouncementSlots não muda nada sem newsPosition configurado', () => {
+  const items = [item({ id: 'i1' }), { id: 'announcement:a1:0', isAnnouncement: true }];
+  assert.deepStrictEqual(feed.attachNewsToAnnouncementSlots(items, null, { items: [newsRaw()] }), items);
+});
+
+test('attachNewsToAnnouncementSlots anexa notícia em rotação só nos slots de comunicado', () => {
+  const items = [
+    item({ id: 'i1' }),
+    { id: 'announcement:a1:0', isAnnouncement: true },
+    item({ id: 'i2' }),
+    { id: 'announcement:a2:1', isAnnouncement: true },
+  ];
+  const rotation = { items: [newsRaw({ id: 'n1' }), newsRaw({ id: 'n2' })] };
+  const result = feed.attachNewsToAnnouncementSlots(items, 'top', rotation);
+
+  assert.equal(result[0].news, undefined, 'item de conteúdo normal não ganha notícia');
+  assert.equal(result[2].news, undefined);
+  assert.deepStrictEqual(result[1].news, {
+    newsId: 'n1', title: 'Título', section: 'Economia', imageUrl: 'https://cdn/news.jpg', type: 'image',
+    photoCredit: 'Fulano/Agência Brasil', sourceName: 'Agência Brasil', shortUrl: 'https://wdr.link/x',
+    position: 'top', isFallback: false, fromCache: false,
+  });
+  // Rotação circular: o segundo slot de comunicado pega a segunda notícia.
+  assert.equal(result[3].news.newsId, 'n2');
+});
+
+test('attachNewsToAnnouncementSlots continua a rotação a partir de startIndex', () => {
+  // Zona com um único slot de comunicado: sem `startIndex` persistido entre chamadas
+  // (como fazia `app.js` antes do fix), a notícia nunca saía de `n1`.
+  const items = [{ id: 'announcement:a1:0', isAnnouncement: true }];
+  const rotation = { items: [newsRaw({ id: 'n1' }), newsRaw({ id: 'n2' })] };
+
+  assert.equal(feed.attachNewsToAnnouncementSlots(items, 'top', rotation, 0)[0].news.newsId, 'n1');
+  assert.equal(feed.attachNewsToAnnouncementSlots(items, 'top', rotation, 1)[0].news.newsId, 'n2');
+  // O cursor gira: volta para a primeira notícia depois da última.
+  assert.equal(feed.attachNewsToAnnouncementSlots(items, 'top', rotation, 2)[0].news.newsId, 'n1');
+});
+
+test('attachNewsToAnnouncementSlots cai no vídeo de marketing quando não há notícia', () => {
+  const items = [{ id: 'announcement:fallback:0', isAnnouncement: true, isFallback: true }];
+  const rotation = { items: [], fallback: { url: 'https://cdn/marketing.mp4', type: 'video', durationSeconds: 15 } };
+  const result = feed.attachNewsToAnnouncementSlots(items, 'bottom', rotation);
+  assert.deepStrictEqual(result[0].news, {
+    newsId: null, title: '', section: '', imageUrl: 'https://cdn/marketing.mp4', type: 'video',
+    photoCredit: '', sourceName: '', shortUrl: null, position: 'bottom', isFallback: true, fromCache: false,
+  });
+});
+
+test('attachNewsToAnnouncementSlots devolve os itens originais sem notícia nem fallback de marketing', () => {
+  const items = [item({ id: 'i1' }), { id: 'announcement:a1:0', isAnnouncement: true }];
+  assert.deepStrictEqual(feed.attachNewsToAnnouncementSlots(items, 'top', { items: [] }), items);
 });

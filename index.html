@@ -67,19 +67,230 @@
     #zones[data-layout="fullscreen"] .zone { flex: 1 1 100%; }
     .zone { position: relative; min-height: 0; overflow: hidden; background: #000; border-radius: 0.8vh; }
 
+    /*
+     * Duas camadas empilhadas por zona (`.zone-layer`), crossfadando inteiras — moldura
+     * de comunicado + mídia + painel de notícia juntos, de uma vez. Antes só a mídia
+     * (`.zone-media`) crossfadava e a moldura/painel de notícia (classes `is-announcement`/
+     * `has-news`, que controlam todo o layout) trocava instantânea no meio do fade de 1s
+     * — por isso dava pra ver o painel de notícia sumir e o vídeo do comunicado "pular"
+     * de posição antes da próxima mídia sequer aparecer. Com duas camadas sempre no DOM
+     * (nunca recriadas — só a mídia dentro de cada uma troca), o item que sai leva
+     * consigo sua moldura/painel completos até o fim do fade, e o que entra já chega
+     * com a moldura/painel corretos desde o início do fade dele. Ver `showItem` em
+     * `render.js`.
+     */
+    .zone-layer {
+      position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+      opacity: 0;
+      transition: opacity 1000ms ease-in-out;
+    }
+    .zone-layer.visible { opacity: 1; }
+
     .zone-media {
       position: absolute; top: 0; left: 0;
       width: 100%; height: 100%;
       object-fit: contain;
-      opacity: 0;
-      transition: opacity 1000ms ease-in-out;
     }
-    .zone-media.visible { opacity: 1; }
     .zone-empty {
-      position: absolute; inset: 0;
-      display: flex; align-items: center; justify-content: center;
-      color: #4A4660; font-family: var(--font); font-size: 2.2vh;
+      position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1vh;
+      color: #4A4660; font-family: var(--font);
       background: var(--bg);
+    }
+    .zone-empty-spinner {
+      width: 2.6vh; height: 2.6vh;
+      border: 2px solid rgba(74,70,96,.3); border-top-color: #4A4660;
+      border-radius: 50%;
+      animation: zone-empty-spin 900ms linear infinite;
+    }
+    .zone-empty-label { font-size: 13px; font-weight: 500; letter-spacing: .04em; margin-top: 5px; }
+    @keyframes zone-empty-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .zone-empty-spinner { animation: none; }
+    }
+
+    /* ---- Moldura padrão do comunicado (documento "Comunicados — moldura padrão no player") ---- */
+    .zone {
+      --ann-bg: #0A0712; --ann-kick: #F7C948; --ann-name: #FFFFFF; --ann-muted: #B9B5CC;
+      --ann-track: rgba(255,255,255,.14); --ann-shadow: 0 1.8rem 4.8rem rgba(0,0,0,.55);
+      --ann-beam: #F7C948; --ann-cord: #3A3558; --ann-cap: #4A4468; --ann-shade: #2B2740; --ann-rim: #5A5478;
+    }
+    #zones[data-ann-theme="light"] .zone {
+      --ann-bg: #F6F7FA; --ann-kick: #8A5700; --ann-name: #151826; --ann-muted: #535A6E;
+      --ann-track: rgba(21,24,38,.14); --ann-shadow: 0 1.8rem 4.8rem rgba(21,24,38,.18);
+      --ann-beam: #E0A83A; --ann-cord: #9AA0B4; --ann-cap: #7A8098; --ann-shade: #3A3F52; --ann-rim: #7A8098;
+    }
+    .zone-layer.is-announcement { background: var(--ann-bg); }
+    .zone-layer.is-announcement .zone-media {
+      top: var(--ann-top); bottom: auto;
+      left: var(--ann-pad-x); right: auto;
+      width: calc(100% - 2 * var(--ann-pad-x));
+      height: calc(100% - var(--ann-top) - var(--ann-bottom));
+    }
+    .ann-lamp { position: absolute; top: 0; z-index: 0; opacity: .7; pointer-events: none; display: none; }
+    .zone-layer.is-announcement .ann-lamp { display: block; }
+    .zone-layer.is-announcement-video .ann-lamp { display: none; }
+    .ann-head {
+      position: absolute; left: 0; right: 0; z-index: 2;
+      display: none; align-items: center; justify-content: center;
+      font-family: var(--font); pointer-events: none;
+    }
+    .zone-layer.is-announcement:not(.is-fallback) .ann-head { display: flex; }
+    .ann-kick { font-weight: 800; letter-spacing: .22em; text-transform: uppercase; color: var(--ann-kick); }
+    .ann-dot { border-radius: 50%; background: var(--ann-muted); opacity: .6; flex-shrink: 0; display: none; }
+    .ann-name { font-weight: 600; color: var(--ann-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+    .ann-count { position: absolute; color: var(--ann-muted); font-weight: 600; white-space: nowrap; }
+    .ann-progress {
+      position: absolute; left: 50%; transform: translateX(-50%); z-index: 2;
+      background: var(--ann-track); border-radius: 99px; overflow: hidden;
+      display: none;
+    }
+    .zone-layer.is-announcement:not(.is-fallback) .ann-progress { display: block; }
+    .ann-progress-fill {
+      width: 100%; height: 100%; border-radius: 99px;
+      background: linear-gradient(90deg,#3485C4,#5A3A8F 35%,#C8302F 70%,#E75911);
+      transform: scaleX(0); transform-origin: left;
+    }
+
+    @media (orientation: landscape) {
+      .zone-layer.is-announcement {
+        --ann-top: 6.6rem; --ann-bottom: 3.6rem; --ann-pad-x: 6.4rem;
+      }
+      .zone .ann-lamp { width: 15rem; height: 23.5rem; left: 9.6rem; }
+      .zone .ann-head { top: 1.8rem; height: 4.8rem; gap: 1rem; }
+      .zone .ann-kick { font-size: 1.3rem; }
+      .zone .ann-dot { width: 0.4rem; height: 0.4rem; }
+      .zone .ann-name { font-size: 1.5rem; }
+      .zone .ann-count { right: 6.4rem; font-size: 1.6rem; }
+      .zone .ann-progress { bottom: 2.2rem; width: min(20rem, 60%); height: 0.4rem; }
+    }
+    @media (orientation: portrait) {
+      .zone-layer.is-announcement {
+        --ann-top: 9.2rem; --ann-bottom: 4.9rem; --ann-pad-x: 5.6rem;
+      }
+      .zone .ann-lamp { width: 12rem; height: 19rem; left: 0.8rem; }
+      .zone .ann-head { top: 2.8rem; height: 6.4rem; gap: 1.2rem; }
+      .zone .ann-kick { font-size: 7px; margin-top: 5px; }
+      .zone .ann-dot { width: 0.5rem; height: 0.5rem; }
+      .zone .ann-name { font-size: 1.8rem; }
+      .zone .ann-count { right: 5.6rem; font-size: 1.8rem; }
+      .zone .ann-progress { bottom: 3.2rem !important; width: min(24rem, 60%); height: 0.5rem; left: 50% !important; transform: translateX(-50%); }
+    }
+
+    /*
+     * ---- Zona de notícia (plano "Módulo Notícias", Trilha D — Player, seção 6.3) ----
+     * Quando o slot de comunicado tem notícia composta (`item.news`, ver `feed.js`), a
+     * mesma camada se divide em duas metades: a notícia (foto + chip de editoria + título +
+     * crédito + QR) na posição configurada na unidade (`data-news-position`), e o
+     * comunicado (mídia + moldura já existente) na outra metade.
+     */
+    .zone-layer.has-news .zone-media,
+    .zone-layer.has-news .ann-lamp,
+    .zone-layer.has-news .ann-head,
+    .zone-layer.has-news .ann-progress { position: absolute; left: 0; right: 0; }
+    /* Sem padding lateral nesse modo composto (ao contrário do comunicado em tela
+       cheia) — `width:100%` aqui é seguro porque `left:0`/`right:0` já coincidem
+       exatamente com 100% do container, sem sobra pra "estourar". */
+    .zone-layer.has-news .zone-media { width: 100%; }
+    /* Mesmo problema de over-constraint do bloco acima: `top`+`bottom`+`height`
+       juntos fazem a spec descartar `bottom` e usar 100% do container, não o
+       espaço entre os dois offsets. `bottom: auto` + `height` calculada evita isso. */
+    .zone-layer.has-news[data-news-position="top"] .zone-media {
+      top: calc(50% + var(--ann-top, 0)); bottom: auto;
+      height: calc(50% - var(--ann-top, 0) - var(--ann-bottom, 0));
+    }
+    .zone-layer.has-news[data-news-position="top"] .ann-lamp,
+    .zone-layer.has-news[data-news-position="top"] .ann-head,
+    .zone-layer.has-news[data-news-position="top"] .ann-progress { top: 50%; }
+    .zone-layer.has-news[data-news-position="bottom"] .zone-media {
+      top: var(--ann-top, 0); bottom: auto;
+      height: calc(50% - var(--ann-top, 0) - var(--ann-bottom, 0));
+    }
+    .zone-layer.has-news[data-news-position="bottom"] .ann-lamp,
+    .zone-layer.has-news[data-news-position="bottom"] .ann-head,
+    .zone-layer.has-news[data-news-position="bottom"] .ann-progress { top: 0; height: 50%; overflow: hidden; }
+
+    .zone-news {
+      position: absolute; left: 0; right: 0; z-index: 1;
+      display: none; background: var(--card); overflow: hidden;
+      font-family: var(--font); color: var(--text);
+    }
+    .zone-layer.has-news .zone-news { display: flex; }
+    .zone-layer.has-news[data-news-position="top"] .zone-news { top: 0; bottom: 50%; }
+    .zone-layer.has-news[data-news-position="bottom"] .zone-news { top: 50%; bottom: 0; }
+
+    .news-photo-wrap { position: relative; flex-shrink: 0; overflow: hidden; background: #000; }
+    .news-photo { display: block; width: 100%; height: 100%; }
+    .news-credit {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      width: max-content;
+      background: rgba(10,7,18,.78); color: var(--text);
+      font-size: 1.3rem; padding: 0.8rem 1.6rem;
+      border-radius: 0 4px 0 0;
+      display: none;
+    }
+    .news-panel { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+    .news-chip {
+      align-self: flex-start;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      padding-right: 3px;
+      padding-bottom: 1px;
+      color: #b0abab;
+      line-height: 100%;
+      border-bottom: 1px solid #caa33d;
+      margin-bottom: 7px;
+    }
+    .news-title {
+      font-weight: 800; line-height: 1.2; margin: 0; letter-spacing: -.01em;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+      margin-bottom: 7px;
+    }
+    .news-footer { margin-top: auto; display: flex; align-items: flex-end; }
+    /* Fundo branco com 10px de margem ao redor do QR (regra do plano, independente do tamanho). */
+    .news-qr { background: #FFFFFF; padding: 4px; border-radius: 4px; flex-shrink: 0; }
+    .news-qr svg { display: block; }
+    .news-caption { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; margin-left: 6px; padding-bottom: 2px; }
+    .news-caption-action { font-weight: 600; color: var(--text); margin-bottom: 2px; }
+    .news-caption-source { color: var(--text-3); }
+
+    /* Entrada sutil do painel de notícia: texto "sobe" de leve em vez de só aparecer
+       estático junto com o resto da camada. Fica atrelado a `.visible` (a mesma classe
+       do cross-fade da camada) para reiniciar a cada troca de item, mesmo a camada/nó
+       nunca sendo recriada. */
+    @keyframes news-rise { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    .news-chip, .news-title, .news-footer { opacity: 0; }
+    .zone-layer.visible.has-news .news-chip { animation: news-rise 1.2s ease-out both; }
+    .zone-layer.visible.has-news .news-title { animation: news-rise 1.2s ease-out 60ms both; }
+    .zone-layer.visible.has-news .news-footer { animation: news-rise 1.2s ease-out 120ms both; }
+    @media (prefers-reduced-motion: reduce) {
+      .news-chip, .news-title, .news-footer { opacity: 1; animation: none; }
+    }
+
+    @media (orientation: landscape) {
+      .zone-news { flex-direction: row; padding: 0; }
+      .news-photo-wrap { width: 50%; height: 100%; }
+      .news-panel { padding: 3.6rem 4.4rem 3rem; }
+      .news-chip { font-size: 1.3rem; }
+      .news-title { font-size: 2.8rem; }
+      .news-credit { font-size: 1.2rem; }
+      .news-qr { width: 140px; height: 140px; }
+      .news-qr svg { width: 120px; height: 120px; }
+      .news-caption-action { font-size: 1.5rem; }
+      .news-caption-source { font-size: 1.2rem; }
+    }
+    @media (orientation: portrait) {
+      .zone-news { flex-direction: column; padding: 0; }
+      .news-photo-wrap { width: 100%; height: 65%; }
+      .news-panel { padding: 2.8rem 3.6rem 3rem; }
+      .news-chip { font-size: 6px; }
+      .news-title { font-size: 22px; }
+      .news-credit { font-size: 1.3rem; }
+      .news-qr { width: 40px; height: 40px; }
+      .news-qr svg { width: 40px; height: 40px; }
+      .news-caption-action { font-size: 8px; }
+      .news-caption-source { font-size: 6px; }
     }
 
     /* ---- barra de informações (seção 6.1 da doc) ---- */
@@ -115,9 +326,11 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .info-bar-image { height: 100%; max-width: 100%; object-fit: cover; display: block; }
+    .info-bar-with-source { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; }
+    .info-bar-source { display: block; margin-top: 2px; font-size: 6px; font-weight: 500; color: #7A7591; white-space: nowrap; }
     .info-bar-quotes { display: block; font-size: 13px; font-weight: 500; width: max-content; justify-content: space-between; }
-    .info-bar-quote { display: inline-block; margin: 0 5px; font-size: 10.5px; vertical-align: bottom; }
-    .info-bar-quote-icon { width: 1.5em; height: 1.5em; color: #B9B5CC; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; margin-right: 3px; }
+    .info-bar-quote { display: inline-block; margin: 0 5px; font-size: 10.5px; vertical-align: middle; }
+    .info-bar-quote-icon { width: 14px; height: 14px; color: #B9B5CC; vertical-align: middle; margin-right: 3px; }
     .info-bar-quote em { font-style: normal; font-weight: 600; color: #B9B5CC; font-size: 11px; margin-right: 3px; }
     .info-bar-change { font-size: 8px; font-weight: 600; }
     .info-bar-change.up { color: #4CC38A; }
@@ -883,10 +1096,14 @@
 
   <!-- socket.io servido localmente: o kiosk precisa subir sem CDN -->
   <script src="vendor/socket.io.min.js"></script>
+  <!-- QR code local da zona de notícia: gerado no device, sem chamada externa (seção 6.3). -->
+  <script src="vendor/qrcode/qrcode.js"></script>
 
   <!-- Módulos do player: config primeiro, app.js por último -->
   <script src="config.js"></script>
   <script src="feed.js"></script>
+  <script src="newsfeed.js"></script>
+  <script src="qrcode-local.js"></script>
   <script src="api.js"></script>
   <script src="cache.js"></script>
   <script src="logger.js"></script>
@@ -894,8 +1111,9 @@
   <script src="heartbeat.js"></script>
   <script src="commands.js"></script>
   <script src="kiosk.js"></script>
-  <!-- Evidências de exibição: playlog (proof of play agregado) e capture (prints). -->
+  <!-- Evidências de exibição: playlog/newslog (proof of play agregado) e capture (prints). -->
   <script src="playlog.js"></script>
+  <script src="newslog.js"></script>
   <script src="capture.js"></script>
   <script src="wakelock.js"></script>
   <script src="watchdog.js"></script>

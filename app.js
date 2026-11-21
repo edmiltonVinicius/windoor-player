@@ -1,6 +1,9 @@
 // Orquestrador: configuração → identidade → estado inicial → tempo real.
 (async function start() {
-  const { config, api, cache, feed, render, logger, heartbeat, commands, playlog, capture, wakelock, watchdog, pairing, unpair } = WindoorPlayer;
+  const {
+    config, api, cache, feed, render, logger, heartbeat, commands, playlog, capture, wakelock, watchdog,
+    pairing, unpair, newsfeed, newslog,
+  } = WindoorPlayer;
 
   let inactiveRetryId = null;
   /** Itens exibíveis no último feed aplicado — decide a captura inicial do player novo. */
@@ -85,22 +88,98 @@
     }
   }
 
+  // 3.5) notícias (seção 6.1/9.1 do plano de Notícias): `GET /player/news`, normalizado
+  // por `newsfeed.js`; a posição (`unit.newsPosition`) viaja junto de `GET /player/contents`
+  // (contrato em `contratos.md`) — `// TODO(produto):` o backend real desta sessão ainda não
+  // manda esse campo (nem em `GET /player/contents`, nem em `PUT /units/:id/announcement-settings`
+  // — conferido em `src/domain/clients/entities/unit_announcement_settings.ts` e no use case
+  // `list_active_contents_for_player.usecase.ts`), então por ora `config.getNewsPosition()`
+  // sempre volta `null` e a notícia nunca aparece — sinalizar para o time de backend corrigir.
+  const NEWS_CACHE_KEY = 'newsCache';
+  const NEWS_POLL_MS = 30 * 60 * 1000;         // rede de segurança (seção "Regras importantes")
+  const NEWS_JITTER_MAX_MS = 60 * 1000;        // jitter 0–60s antes de refazer o GET após o evento
+  /** Último feed de comunicado/playlist normalizado — a notícia é sobreposta nele antes de renderizar. */
+  let lastNormalizedFeed = null;
+  /** Último `GET /player/news` normalizado com sucesso (não persiste falha de rede). */
+  let lastNewsFeed = { generatedAt: new Date().toISOString(), items: [] };
+  /** Última entrada de cache local de notícia (`{ items, cachedAtMs }`), para o fallback de 48h. */
+  let lastNewsCacheEntry = null;
+  /** Cursor da rotação circular de notícia (seção 6 do plano): precisa sobreviver entre
+   * chamadas de `renderWithNews`, senão toda atualização de feed (poll de 30min, socket,
+   * `content:updated`) reiniciava o round robin em 0 — com um só slot de comunicado na
+   * zona, a 2ª notícia aprovada nunca entrava no ar. */
+  let newsRotationIndex = 0;
+
+  function applyNewsPositionFromContents(raw) {
+    config.setNewsPosition(raw && raw.newsPosition);
+  }
+
+  /** Sobrepõe a rotação de notícia nos slots de comunicado do último feed carregado e renderiza. */
+  function renderWithNews() {
+    if (!lastNormalizedFeed) return;
+    const newsPosition = config.getNewsPosition();
+    if (!newsPosition) { render.setFeed(lastNormalizedFeed); return; }
+
+    const selection = newsfeed.selectNewsSource(lastNewsFeed, lastNewsCacheEntry, new Date());
+    const rotation = { items: selection.items, fallback: lastNormalizedFeed.announcements && lastNormalizedFeed.announcements.fallback };
+    // O `render.js` gira de novo a cada exibição real na tela (ver `showItem`) — isto
+    // aqui só garante que ele sempre tenha a lista atual de notícias válidas.
+    render.setNewsRotationPool(rotation);
+    let cursor = newsRotationIndex;
+    const withNews = {
+      ...lastNormalizedFeed,
+      zones: lastNormalizedFeed.zones.map((zone) => {
+        const items = feed.attachNewsToAnnouncementSlots(zone.items, newsPosition, rotation, cursor);
+        cursor += items.filter((item) => item && item.isAnnouncement).length;
+        return { ...zone, items };
+      }),
+    };
+    newsRotationIndex = rotation.items.length > 0 ? cursor % rotation.items.length : 0;
+    render.setFeed(withNews);
+  }
+
+  async function loadNewsFromCache() {
+    try {
+      lastNewsCacheEntry = await cache.readEvidence(NEWS_CACHE_KEY);
+    } catch (_) { lastNewsCacheEntry = null; }
+  }
+
+  async function refreshNews() {
+    try {
+      const normalized = newsfeed.normalizeNewsFeed(await api.get('/player/news'));
+      lastNewsFeed = normalized;
+      lastNewsCacheEntry = newsfeed.toCacheEntry(normalized);
+      await cache.saveEvidence(NEWS_CACHE_KEY, lastNewsCacheEntry);
+      renderWithNews();
+      return true;
+    } catch (error) {
+      logger.info('Feed de notícias não atualizado (serviço ainda não disponível ou offline)', {
+        error: error.message, code: error.code,
+      });
+      return false;
+    }
+  }
+
   // 4) estado inicial: API → cache local
   async function loadInitial() {
     try {
-      const normalized = feed.normalizeFeed(await api.get('/player/contents'));
+      const raw = await api.get('/player/contents');
+      applyNewsPositionFromContents(raw);
+      const normalized = feed.normalizeFeed(raw);
       await cache.saveFeed(normalized);
       cache.pruneMedia(normalized);
       cache.preloadMedia(normalized);
       render.setStatus('online');
-      render.setFeed(normalized);
+      lastNormalizedFeed = normalized;
+      renderWithNews();
       applyEvidenceSettings(normalized);
     } catch (error) {
       if (error && error.status === 403) return;            // tela #inactive cuida disso
       // Offline: o feed salvo pode conter conteúdo que venceu desde então.
       const cached = feed.normalizeFeed(await cache.readFeed());
       render.setStatus('offline (usando cache local)');
-      render.setFeed(cached);
+      lastNormalizedFeed = cached;
+      renderWithNews();
       applyEvidenceSettings(cached);
       logger.error('Falha ao carregar o feed da API, usando cache local', {
         error: error.message, code: error.code, totalItens: feed.totalItems(cached),
@@ -131,6 +210,7 @@
       // Voltou a rede: manda o que acumulou offline (seções 2.5 e 2.6).
       if (capture) capture.flush();
       if (playlog) playlog.flush();
+      if (newslog) newslog.flush();
     });
     socket.on('disconnect', () => render.setStatus('offline (usando cache local)'));
     socket.on('connect_error', (e) => {
@@ -139,11 +219,13 @@
     });
     socket.on('content:updated', async (payload) => {
       // O evento carrega o mesmo formato de GET /player/contents.
+      applyNewsPositionFromContents(payload && payload.contents);
       const normalized = feed.normalizeFeed(payload && payload.contents);
       await cache.saveFeed(normalized);
       cache.pruneMedia(normalized);
       cache.preloadMedia(normalized);
-      render.setFeed(normalized);
+      lastNormalizedFeed = normalized;
+      renderWithNews();
       applyEvidenceSettings(normalized);
       refreshWeather();   // o local do clima pode ter mudado junto com a barra
     });
@@ -172,6 +254,12 @@
       await cache.saveQuotes(quotes);
       render.setInfoBarQuotes(quotes);
     });
+    socket.on('news.feed.updated', () => {
+      // Jitter 0–60s (seção 6.1 do plano de Notícias): evita que todos os players da
+      // base refaçam o GET no mesmo instante quando a coleta termina.
+      const jitterMs = Math.floor(Math.random() * NEWS_JITTER_MAX_MS);
+      setTimeout(refreshNews, jitterMs);
+    });
 
     commands.start(socket);
   }
@@ -180,11 +268,14 @@
   // tela de player desativado.
   async function refresh() {
     try {
-      const normalized = feed.normalizeFeed(await api.get('/player/contents'));
+      const raw = await api.get('/player/contents');
+      applyNewsPositionFromContents(raw);
+      const normalized = feed.normalizeFeed(raw);
       await cache.saveFeed(normalized);
       cache.preloadMedia(normalized);
       render.setStatus('online');
-      render.setFeed(normalized);
+      lastNormalizedFeed = normalized;
+      renderWithNews();
       applyEvidenceSettings(normalized);
       return true;
     } catch (_) { return false; }
@@ -204,6 +295,7 @@
 
   await loadQuotesFromCache();
   await loadWeatherFromCache();
+  await loadNewsFromCache();
   await loadInitial();
 
   // 7) evidências: recupera o que não foi confirmado antes do último reload e volta a
@@ -211,6 +303,7 @@
   // playlist, o `first_play` do primeiro item dispara sozinho; sem nenhum item, ele força
   // uma captura para o player aparecer no histórico de qualquer forma.
   if (playlog) { await playlog.hydrate(); playlog.start(); }
+  if (newslog) { await newslog.hydrate(); newslog.start(); }
   if (capture) await capture.bootstrap(lastFeedItems > 0);
 
   connectSocket();
@@ -221,6 +314,8 @@
   setInterval(refreshQuotes, config.INFO_BAR_QUOTES_REFRESH_MS);
   refreshWeather();
   setInterval(refreshWeather, config.INFO_BAR_WEATHER_REFRESH_MS);
+  refreshNews();
+  setInterval(refreshNews, NEWS_POLL_MS);
   if (wakelock) wakelock.start();
   if (watchdog) watchdog.start();          // só aqui: o loop de conteúdo já começou
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js');

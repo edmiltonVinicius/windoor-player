@@ -30,6 +30,49 @@ WindoorPlayer.render = (function () {
   // antes disso): sem limite, um conteúdo quebrado inundaria os logs a cada troca.
   const mediaFailLogAt = new Map(); // contentId -> timestamp do último log
 
+  // ---------- moldura do comunicado: estado ----------
+  let announcementFrame = { theme: 'dark', unitName: '' };
+  let announcementPositionById = new Map(); // id do comunicado -> posição (1-based) no rodízio ativo
+  let announcementTotal = 0;
+
+  // ---------- rotação de notícia: estado ----------
+  // `app.js` já roda `feed.attachNewsToAnnouncementSlots`, mas isso só avança a cada
+  // atualização de feed (poll de 30min, socket, `content:updated`) — com um slot de
+  // comunicado só, o mesmo objeto `item.news` fica preso nesse item até o próximo
+  // refresh, então toda vez que o rodízio LOCAL volta nesse slot (cada volta da
+  // playlist) aparece sempre a mesma notícia. Esse cursor vive aqui e avança a cada
+  // exibição de verdade na tela (`showItem`), não a cada refresh — é o que faz a
+  // notícia realmente girar entre as aprovadas enquanto o totem roda.
+  let newsRotationPool = { items: [], fallback: null };
+  const newsRotationCursorByPosition = new Map(); // posição da zona -> próximo índice no pool
+
+  function setNewsRotationPool(pool) {
+    newsRotationPool = pool && Array.isArray(pool.items) ? pool : { items: [], fallback: null };
+  }
+
+  /** Próxima notícia da rotação pra este slot, avançando o cursor desta zona. Mantém o
+   * fallback de vídeo de marketing como está — não há o que girar nesse caso. */
+  function nextNewsForPosition(position, baseNews) {
+    const pool = newsRotationPool.items;
+    if (baseNews.isFallback || !Array.isArray(pool) || pool.length === 0) return baseNews;
+    const cursor = newsRotationCursorByPosition.get(position) || 0;
+    newsRotationCursorByPosition.set(position, (cursor + 1) % pool.length);
+    const source = pool[cursor % pool.length];
+    return {
+      newsId: source.id,
+      title: source.title,
+      section: source.section,
+      imageUrl: source.imageUrl,
+      type: 'image',
+      photoCredit: source.photoCredit,
+      sourceName: source.sourceName,
+      shortUrl: source.shortUrl,
+      position: baseNews.position,
+      isFallback: false,
+      fromCache: Boolean(source.fromCache),
+    };
+  }
+
   function logMediaDownloadFailed(item, error, extra) {
     if (!WindoorPlayer.logger) return;
     const key = item.contentId || item.url;
@@ -58,21 +101,260 @@ WindoorPlayer.render = (function () {
   /**
    * Fecha a exibição do item que estava no ar. O bucket do `playlog` precisa da zona e da
    * playlist, não só do conteúdo: o mesmo conteúdo pode rodar em duas zonas ao mesmo tempo
-   * e são exibições distintas no histórico.
+   * e são exibições distintas no histórico. Quando o item carrega notícia (`item.news`,
+   * ver `feed.js`), a mesma duração também fecha o bucket de `newslog` — proof of play de
+   * notícia é contado à parte do conteúdo/comunicado (seção 6 do plano de Notícias).
    */
   function endDisplay(state) {
-    if (state.displayed && state.startedAt && WindoorPlayer.playlog) {
-      const zone = feed && feed.zones.find((z) => z.position === state.position);
-      WindoorPlayer.playlog.report(state.displayed, Date.now() - state.startedAt, {
-        zone: state.position,
-        playlistId: zone && zone.playlist ? zone.playlist.id : null,
-      });
+    if (state.displayed && state.startedAt) {
+      const durationMs = Date.now() - state.startedAt;
+      if (WindoorPlayer.playlog) {
+        const zone = feed && feed.zones.find((z) => z.position === state.position);
+        WindoorPlayer.playlog.report(state.displayed, durationMs, {
+          zone: state.position,
+          playlistId: zone && zone.playlist ? zone.playlist.id : null,
+        });
+      }
+      if (WindoorPlayer.newslog && state.displayed.news) {
+        // `zone` aqui é a metade (`top`/`bottom`) que a notícia ocupa dentro do slot
+        // (`unit.newsPosition`, ver `feed.js`), não a zona de layout do player
+        // (`state.position`, que pode ser `full` num layout `fullscreen` — valor que o
+        // contrato de `POST /player/news-plays` não aceita, `zone: 'top'|'bottom'`).
+        WindoorPlayer.newslog.report(state.displayed, durationMs, {
+          zone: state.displayed.news.position,
+          fromCache: state.displayed.news.fromCache,
+        });
+      }
     }
     state.displayed = null;
     state.startedAt = null;
   }
 
   // ---------- DOM das zonas ----------
+
+  /**
+   * Monta os elementos decorativos da moldura do comunicado (documento "Comunicados —
+   * moldura padrão no player"): luminária, cabeçalho (COMUNICADO · unidade · N de M) e
+   * barra de progresso. Ficam sempre no DOM, escondidos via CSS (`.zone.is-announcement`)
+   * até o item exibido ser um comunicado — evitam recriar/remover nó a cada troca de item.
+   */
+  function buildAnnouncementChrome(position) {
+    const lamp = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    lamp.setAttribute('class', 'ann-lamp');
+    lamp.setAttribute('viewBox', '-120 0 360 560');
+    lamp.setAttribute('preserveAspectRatio', 'xMidYMin meet');
+    lamp.setAttribute('aria-hidden', 'true');
+    const coneId = `ann-cone-${position}`;
+    const haloId = `ann-halo-${position}`;
+    lamp.innerHTML = `
+      <defs>
+        <linearGradient id="${coneId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--ann-beam)" stop-opacity=".16"/>
+          <stop offset="1" stop-color="var(--ann-beam)" stop-opacity="0"/>
+        </linearGradient>
+        <radialGradient id="${haloId}" cx=".5" cy=".5" r=".5">
+          <stop offset="0" stop-color="#FFE7A3" stop-opacity=".5"/>
+          <stop offset=".35" stop-color="#F7C948" stop-opacity=".15"/>
+          <stop offset="1" stop-color="#F7C948" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <path d="M18 236 L102 236 L240 560 L-120 560 Z" fill="url(#${coneId})"/>
+      <line x1="60" y1="0" x2="60" y2="178" stroke="var(--ann-cord)" stroke-width="2"/>
+      <rect x="54" y="176" width="12" height="14" rx="2" fill="var(--ann-cap)"/>
+      <path d="M50 190 L70 190 L104 236 L16 236 Z" fill="var(--ann-shade)"/>
+      <path d="M16 236 L104 236" stroke="var(--ann-rim)" stroke-width="2"/>
+      <circle cx="60" cy="240" r="34" fill="url(#${haloId})"/>
+      <ellipse cx="60" cy="238" rx="13" ry="8" fill="#FFF4D1"/>
+    `;
+
+    const head = document.createElement('div');
+    head.className = 'ann-head';
+    const kick = document.createElement('span');
+    kick.className = 'ann-kick';
+    kick.textContent = 'Comunicado';
+    const dot = document.createElement('span');
+    dot.className = 'ann-dot';
+    dot.setAttribute('aria-hidden', 'true');
+    const nameEl = document.createElement('span');
+    nameEl.className = 'ann-name';
+    const countEl = document.createElement('span');
+    countEl.className = 'ann-count';
+    head.append(kick, dot, nameEl, countEl);
+
+    const progress = document.createElement('div');
+    progress.className = 'ann-progress';
+    progress.setAttribute('role', 'progressbar');
+    progress.setAttribute('aria-label', 'Tempo restante deste comunicado');
+    progress.setAttribute('aria-valuemin', '0');
+    progress.setAttribute('aria-valuemax', '100');
+    const barFillEl = document.createElement('div');
+    barFillEl.className = 'ann-progress-fill';
+    progress.appendChild(barFillEl);
+
+    return { lamp, head, nameEl, countEl, progress, barFillEl };
+  }
+
+  /**
+   * Monta o painel de notícia (plano "Módulo Notícias", Trilha D — Player, seção 6.3):
+   * foto, chip de editoria, título, crédito da foto e QR local. Fica sempre no DOM,
+   * escondido via CSS (`.zone.has-news`) até o item exibido carregar `.news` — mesma
+   * estratégia do `buildAnnouncementChrome`, para não recriar nó a cada troca de item.
+   */
+  function buildNewsPanel() {
+    const wrap = document.createElement('div');
+    wrap.className = 'zone-news';
+
+    const photoWrap = document.createElement('div');
+    photoWrap.className = 'news-photo-wrap';
+    const photo = document.createElement('img');
+    photo.className = 'news-photo';
+    photo.alt = '';
+    photo.crossOrigin = 'anonymous';
+    const credit = document.createElement('span');
+    credit.className = 'news-credit';
+    photoWrap.append(photo, credit);
+
+    const panel = document.createElement('div');
+    panel.className = 'news-panel';
+
+    const chip = document.createElement('span');
+    chip.className = 'news-chip';
+
+    const title = document.createElement('h3');
+    title.className = 'news-title';
+
+    const footer = document.createElement('div');
+    footer.className = 'news-footer';
+    const qr = document.createElement('div');
+    qr.className = 'news-qr';
+    const caption = document.createElement('div');
+    caption.className = 'news-caption';
+    const captionAction = document.createElement('span');
+    captionAction.className = 'news-caption-action';
+    const captionSource = document.createElement('span');
+    captionSource.className = 'news-caption-source';
+    caption.append(captionAction, captionSource);
+    footer.append(qr, caption);
+
+    panel.append(chip, title, footer);
+    wrap.append(photoWrap, panel);
+
+    return { wrap, photo, chip, title, credit, qr, captionAction, captionSource };
+  }
+
+  /** Reinicia a animação da barra de progresso (0 a 100% linear) pela duração do item. */
+  function startAnnouncementProgress(state, durationSeconds) {
+    const bar = state.annBarFillEl;
+    if (!bar) return;
+    bar.style.transition = 'none';
+    bar.style.transform = 'scaleX(0)';
+    // Força um reflow antes de religar a transição, senão o navegador aplica os dois
+    // estilos num quadro só e a barra nunca anima.
+    void bar.offsetWidth;
+    requestAnimationFrame(() => {
+      bar.style.transition = `transform ${Math.max(1, durationSeconds)}s linear`;
+      bar.style.transform = 'scaleX(1)';
+    });
+  }
+
+  function resetAnnouncementProgress(state) {
+    const bar = state.annBarFillEl;
+    if (!bar) return;
+    bar.style.transition = 'none';
+    bar.style.transform = 'scaleX(0)';
+  }
+
+  /** Aplica (ou remove) a moldura de comunicado no item que acabou de entrar na zona. */
+  function applyAnnouncementChrome(state, item) {
+    const isAnn = Boolean(item.isAnnouncement);
+    state.el.classList.toggle('is-announcement', isAnn);
+    state.el.classList.toggle('is-fallback', Boolean(item.isFallback));
+    // vídeo de comunicado já ocupa a tela com conteúdo próprio: a lâmpada decorativa some
+    state.el.classList.toggle('is-announcement-video', isAnn && item.type === 'video');
+    if (!isAnn) {
+      resetAnnouncementProgress(state);
+      return;
+    }
+    if (state.annNameEl) state.annNameEl.textContent = announcementFrame.unitName;
+    if (state.annCountEl) {
+      const position = item.announcementId ? announcementPositionById.get(item.announcementId) : null;
+      state.annCountEl.style.display = position && announcementTotal > 1 ? '' : 'none';
+      state.annCountEl.textContent = position ? `${position} de ${announcementTotal}` : '';
+    }
+    startAnnouncementProgress(state, item.durationSeconds);
+  }
+
+  /**
+   * Baixa a foto da notícia pelo mesmo cache-first de mídia de zona (`getCachedMedia`).
+   * Falha não troca a tela: a foto anterior (ou nenhuma) continua, e a notícia só não
+   * aparece com foto até a próxima vez que entrar no rodízio.
+   */
+  async function loadNewsPhoto(state, news) {
+    try {
+      state.newsPhotoEl.src = await WindoorPlayer.cache.getCachedMedia(news.imageUrl);
+    } catch (error) {
+      if (WindoorPlayer.logger) {
+        WindoorPlayer.logger.warn('Falha ao baixar foto da notícia', { url: news.imageUrl, error: error.message });
+      }
+    }
+  }
+
+  /**
+   * Aplica (ou remove) o painel de notícia no item que acabou de entrar na zona (seção
+   * 6.3 do plano de Notícias). Fallback de vídeo de marketing (`isFallback`, ver
+   * `feed.js`) mostra só a foto/vídeo, sem chip/título/crédito/QR — não é notícia de
+   * verdade, é só o que ocupa a metade da tela quando não há nenhuma disponível.
+   */
+  function applyNewsPanel(state, item) {
+    const news = item && item.news;
+    state.el.classList.toggle('has-news', Boolean(news));
+    if (!news) {
+      delete state.el.dataset.newsPosition;
+      return;
+    }
+    state.el.dataset.newsPosition = news.position;
+
+    const hasContent = !news.isFallback;
+    state.newsChipEl.style.display = hasContent ? '' : 'none';
+    state.newsTitleEl.style.display = hasContent ? '' : 'none';
+    state.newsCreditEl.style.display = hasContent ? '' : 'none';
+    state.newsQrEl.style.display = hasContent ? '' : 'none';
+    state.newsCaptionActionEl.style.display = hasContent ? '' : 'none';
+    state.newsCaptionSourceEl.style.display = hasContent ? '' : 'none';
+
+    if (hasContent) {
+      state.newsChipEl.textContent = news.section || '';
+      state.newsTitleEl.textContent = news.title || '';
+      state.newsCreditEl.textContent = news.photoCredit || '';
+      state.newsCaptionActionEl.textContent = 'Aponte a câmera e leia a matéria';
+      state.newsCaptionSourceEl.textContent =
+        `Fonte: ${news.sourceName || 'Agência Brasil'}`;
+
+      if (state.newsQrUrl !== news.shortUrl) {
+        state.newsQrUrl = news.shortUrl;
+        const svg = (WindoorPlayer.qrcodeLocal && news.shortUrl)
+          ? WindoorPlayer.qrcodeLocal.buildSvg(news.shortUrl)
+          : null;
+        state.newsQrEl.innerHTML = svg || '';
+      }
+    }
+
+    if (state.newsPhotoUrl !== news.imageUrl) {
+      state.newsPhotoUrl = news.imageUrl;
+      loadNewsPhoto(state, news);
+    }
+  }
+
+  /** Lê o tema e o nome da unidade do feed, e o índice de cada comunicado ativo (seção 2.4). */
+  function applyAnnouncementFrameMeta(announcements) {
+    const frame = (announcements && announcements.frame) || { theme: 'dark', unitName: '' };
+    announcementFrame = frame;
+    const items = (announcements && announcements.items) || [];
+    announcementTotal = items.length;
+    announcementPositionById = new Map(items.map((item, index) => [item.id, index + 1]));
+    const container = zonesContainer();
+    if (container) container.dataset.annTheme = frame.theme;
+  }
 
   /** Recria os elementos das zonas quando o layout muda (e só nesse caso). */
   function buildZones(layout, zones) {
@@ -92,10 +374,53 @@ WindoorPlayer.render = (function () {
       el.className = 'zone';
       el.dataset.position = zone.position;
 
+      // Mesmo visual pras duas situações (zona sem playlist / playlist sem conteúdo
+      // exibível): um spinner sutil em vez de mensagem de erro — não é uma falha pro
+      // totem, só não tem nada pra mostrar ainda/agora.
       const empty = document.createElement('div');
       empty.className = 'zone-empty';
-      empty.textContent = 'Sem playlist nesta zona';
+      const spinner = document.createElement('div');
+      spinner.className = 'zone-empty-spinner';
+      const label = document.createElement('span');
+      label.className = 'zone-empty-label';
+      label.textContent = 'Carregando';
+      empty.append(spinner, label);
       el.appendChild(empty);
+
+      // Duas camadas fixas por zona (nunca recriadas) — crossfade entre elas troca
+      // moldura + mídia + painel de notícia juntos, de uma vez (ver comentário de
+      // `.zone-layer` no CSS e `showItem` abaixo).
+      const layers = [0, 1].map((layerIndex) => {
+        const layerEl = document.createElement('div');
+        layerEl.className = 'zone-layer';
+
+        const ann = buildAnnouncementChrome(`${zone.position}-${layerIndex}`);
+        layerEl.appendChild(ann.lamp);
+        layerEl.appendChild(ann.head);
+        layerEl.appendChild(ann.progress);
+
+        const news = buildNewsPanel();
+        layerEl.appendChild(news.wrap);
+
+        el.appendChild(layerEl);
+
+        return {
+          el: layerEl,
+          currentMediaEl: null,
+          annNameEl: ann.nameEl,
+          annCountEl: ann.countEl,
+          annBarFillEl: ann.barFillEl,
+          newsPhotoEl: news.photo,
+          newsChipEl: news.chip,
+          newsTitleEl: news.title,
+          newsCreditEl: news.credit,
+          newsQrEl: news.qr,
+          newsCaptionActionEl: news.captionAction,
+          newsCaptionSourceEl: news.captionSource,
+          newsPhotoUrl: null,
+          newsQrUrl: null,
+        };
+      });
 
       container.appendChild(el);
       zoneStates.set(zone.position, {
@@ -106,6 +431,10 @@ WindoorPlayer.render = (function () {
         timer: null,
         displayed: null,
         startedAt: null,
+        layers,
+        /** Camada (`layers[0|1]`) com o item no ar agora; `null` = nada exibido ainda. */
+        activeLayerIndex: null,
+        /** Espelho da mídia no ar na camada ativa, só para `captureSnapshot`. */
         currentMediaEl: null,
       });
     });
@@ -199,32 +528,65 @@ WindoorPlayer.render = (function () {
       return;
     }
 
+    // A camada que ENTRA é sempre a outra (ou a 0, na primeira exibição desta zona).
+    const enteringIndex = state.activeLayerIndex === null ? 0 : 1 - state.activeLayerIndex;
+    const enteringLayer = state.layers[enteringIndex];
+    const leavingLayer = state.activeLayerIndex === null ? null : state.layers[state.activeLayerIndex];
+
+    // Defensivo: item com duração muito curta pode fazer esta mesma camada virar "a
+    // que entra" de novo antes do cleanup da exibição anterior dela (TRANSITION_MS
+    // depois de deixar de ser a ativa) ter rodado. Garante que nunca sobra mídia
+    // antiga dentro da camada antes de colocar a nova.
+    if (enteringLayer.currentMediaEl) {
+      enteringLayer.currentMediaEl.remove();
+      enteringLayer.currentMediaEl = null;
+    }
+
     const entering = createMediaElement(item);
     entering.src = src;
     entering.className = 'zone-media';
-    state.el.appendChild(entering);
+    enteringLayer.el.appendChild(entering);
 
     await waitMediaReady(entering, item);
 
-    // Força um frame antes de animar, senão a transição não acontece.
-    requestAnimationFrame(() => entering.classList.add('visible'));
+    // Girar a notícia aqui (não em `app.js`/`feed.js`) é o que faz cada exibição real
+    // deste slot na tela mostrar a próxima aprovada, mesmo que o feed não tenha sido
+    // atualizado entre uma volta e outra da playlist.
+    const displayItem = item.news ? { ...item, news: nextNewsForPosition(position, item.news) } : item;
 
-    const leaving = state.currentMediaEl;
-    if (leaving) {
-      leaving.classList.remove('visible');
-      const oldSrc = leaving.src;
+    // Moldura de comunicado e painel de notícia da camada que ENTRA são aplicados
+    // antes do fade começar — chegam prontos junto com a mídia, nunca trocando no
+    // meio da animação (era isso que fazia o painel de notícia "sumir" e o vídeo do
+    // comunicado pular de posição antes da próxima mídia aparecer).
+    applyAnnouncementChrome(enteringLayer, displayItem);
+    applyNewsPanel(enteringLayer, displayItem);
+
+    // Força um frame antes de animar, senão a transição não acontece.
+    requestAnimationFrame(() => enteringLayer.el.classList.add('visible'));
+
+    if (leavingLayer) {
+      const leavingMedia = leavingLayer.currentMediaEl;
+      leavingLayer.el.classList.remove('visible');
       setTimeout(() => {
-        leaving.remove();
-        if (oldSrc && oldSrc.startsWith('blob:')) URL.revokeObjectURL(oldSrc);
+        if (leavingMedia) {
+          const oldSrc = leavingMedia.src;
+          leavingMedia.remove();
+          if (oldSrc && oldSrc.startsWith('blob:')) URL.revokeObjectURL(oldSrc);
+        }
+        leavingLayer.currentMediaEl = null;
       }, WindoorPlayer.config.TRANSITION_MS + 50);
     }
 
-    state.currentMediaEl = entering;
+    enteringLayer.currentMediaEl = entering;
+    state.currentMediaEl = entering; // espelho da camada ativa, só para `captureSnapshot`
+    state.activeLayerIndex = enteringIndex;
     state.emptyEl.style.display = 'none';
 
     // A duração do anterior só é contabilizada depois que o novo está pronto.
+    // `displayItem` (não `item`): o proof-of-play de notícia precisa registrar a
+    // matéria que de fato girou pra esta exibição, não a que `app.js` tinha baked.
     endDisplay(state);
-    state.displayed = item;
+    state.displayed = displayItem;
     state.startedAt = Date.now();
 
     // Primeira exibição deste conteúdo no dia rende uma captura de evidência. O módulo
@@ -268,9 +630,13 @@ WindoorPlayer.render = (function () {
     if (zone.items.length === 0) {
       if (state.timer) clearTimeout(state.timer);
       endDisplay(state);
-      if (state.currentMediaEl) { state.currentMediaEl.remove(); state.currentMediaEl = null; }
+      state.layers.forEach((layer) => {
+        layer.el.classList.remove('visible');
+        if (layer.currentMediaEl) { layer.currentMediaEl.remove(); layer.currentMediaEl = null; }
+      });
+      state.currentMediaEl = null;
+      state.activeLayerIndex = null;
       state.emptyEl.style.display = 'flex';
-      state.emptyEl.textContent = zone.playlist ? 'Playlist sem conteúdo disponível' : 'Sem playlist nesta zona';
       return;
     }
 
@@ -348,6 +714,21 @@ WindoorPlayer.render = (function () {
     return eligible;
   }
 
+  // símbolo exibido dentro do ícone de cada moeda (seção 6.1 da doc)
+  const QUOTE_ICON_CHAR = { USD: '$', EUR: '€', GBP: '£', ARS: '$' };
+
+  function quoteIcon(symbol) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', 'info-bar-quote-icon');
+    const char = QUOTE_ICON_CHAR[symbol] || symbol.charAt(0);
+    svg.innerHTML =
+      '<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.6"/>' +
+      `<text x="12" y="16.3" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor">${char}</text>`;
+    return svg;
+  }
+
   function renderInfoBarQuotesContent(item) {
     const wrap = document.createElement('div');
     wrap.className = 'info-bar-quotes';
@@ -364,13 +745,23 @@ WindoorPlayer.render = (function () {
 
       const span = document.createElement('span');
       span.className = 'info-bar-quote';
-      span.innerHTML =
+      span.appendChild(quoteIcon(symbol));
+      span.insertAdjacentHTML('beforeend',
         `<em>${symbol}</em>` +
         `${Number.isFinite(bid) ? bid.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'}` +
-        `<b class="info-bar-change ${direction}">${arrow}${Number.isFinite(changePct) ? Math.abs(changePct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0'}%</b>`;
+        `<b class="info-bar-change ${direction}">${arrow}${Number.isFinite(changePct) ? Math.abs(changePct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0'}%</b>`);
       wrap.appendChild(span);
     });
 
+    return wrap;
+  }
+
+  /** Envolve o conteúdo (cotações/clima) com a linha "Fonte: X" abaixo (seção 6.1 da doc). */
+  function withInfoBarSource(contentEl, sourceName) {
+    const wrap = document.createElement('div');
+    wrap.className = 'info-bar-with-source';
+    wrap.appendChild(contentEl);
+    wrap.appendChild(el('span', 'info-bar-source', `Fonte: ${sourceName}`));
     return wrap;
   }
 
@@ -491,9 +882,9 @@ WindoorPlayer.render = (function () {
       img.src = infoBarImageBlobUrls.get(item.url) || item.url;
       centerEl.appendChild(img);
     } else if (item.type === 'quotes') {
-      centerEl.appendChild(renderInfoBarQuotesContent(item));
+      centerEl.appendChild(withInfoBarSource(renderInfoBarQuotesContent(item), 'AwesomeAPI'));
     } else if (item.type === 'weather') {
-      centerEl.appendChild(renderInfoBarWeatherContent(item));
+      centerEl.appendChild(withInfoBarSource(renderInfoBarWeatherContent(item), 'Open-Meteo'));
     }
   }
 
@@ -630,6 +1021,7 @@ WindoorPlayer.render = (function () {
   function setFeed(next) {
     if (!next) return;
     lastTickMs = Date.now();
+    applyAnnouncementFrameMeta(next.announcements);
 
     // Primeira carga não é "mudança de configuração": quem cobre o início é o
     // `first_play` do primeiro item, não um gatilho de playlist/layout alterado.
@@ -785,6 +1177,7 @@ WindoorPlayer.render = (function () {
   return {
     setFeed,
     setStatus,
+    setNewsRotationPool,
     setInfoBarQuotes,
     setInfoBarWeather,
     infoBarWeatherLocation,

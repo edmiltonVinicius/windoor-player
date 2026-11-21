@@ -185,20 +185,56 @@
     const id = String(raw.id || '');
     const url = String(raw.url || '');
     if (!id || !url || !TYPES.includes(raw.type)) return null;
-    return { id, contentId: String(raw.contentId || id), type: raw.type, url };
+    const width = Number(raw.width);
+    const height = Number(raw.height);
+    return {
+      id,
+      contentId: String(raw.contentId || id),
+      type: raw.type,
+      url,
+      width: Number.isFinite(width) && width > 0 ? width : null,
+      height: Number.isFinite(height) && height > 0 ? height : null,
+    };
+  }
+
+  /** Conteúdo padrão da unidade (seção 2.7 do documento de moldura): exibido sem header nem barra. */
+  function normalizeAnnouncementFallback(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const url = String(raw.mediaUrl || '');
+    if (!url || !TYPES.includes(raw.type)) return null;
+    const seconds = Number(raw.durationSeconds);
+    const width = Number(raw.width);
+    const height = Number(raw.height);
+    return {
+      url,
+      type: raw.type,
+      durationSeconds: Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : 10,
+      width: Number.isFinite(width) && width > 0 ? width : null,
+      height: Number.isFinite(height) && height > 0 ? height : null,
+    };
+  }
+
+  function normalizeAnnouncementFrame(raw) {
+    const theme = raw && raw.theme === 'light' ? 'light' : 'dark';
+    const unitName = raw && typeof raw.unitName === 'string' ? raw.unitName : '';
+    return { theme, unitName };
   }
 
   function normalizeAnnouncements(raw) {
-    if (!raw || typeof raw !== 'object') return { ...DEFAULT_ANNOUNCEMENTS, items: [] };
+    if (!raw || typeof raw !== 'object') {
+      return { ...DEFAULT_ANNOUNCEMENTS, items: [], frame: normalizeAnnouncementFrame(null), fallback: null };
+    }
     const everyNMedia = Number(raw.everyNMedia);
     const durationSeconds = Number(raw.durationSeconds);
     const items = (Array.isArray(raw.items) ? raw.items : []).map(normalizeAnnouncementItem).filter(Boolean);
     return {
-      enabled: Boolean(raw.enabled) && items.length > 0,
+      enabled: Boolean(raw.enabled),
       everyNMedia: Number.isFinite(everyNMedia) && everyNMedia > 0 ? Math.round(everyNMedia) : DEFAULT_ANNOUNCEMENTS.everyNMedia,
       durationSeconds:
         Number.isFinite(durationSeconds) && durationSeconds > 0 ? Math.round(durationSeconds) : DEFAULT_ANNOUNCEMENTS.durationSeconds,
       items,
+      frame: normalizeAnnouncementFrame(raw.frame),
+      fallback: normalizeAnnouncementFallback(raw.fallback),
     };
   }
 
@@ -213,7 +249,10 @@
    * que o comunicado apareça mesmo em playlists menores que a frequência configurada.
    */
   function interleaveAnnouncements(items, announcements) {
-    if (!announcements || !announcements.enabled || items.length === 0 || announcements.items.length === 0) return items;
+    const hasFallback = Boolean(announcements && announcements.fallback);
+    if (!announcements || !announcements.enabled || items.length === 0 || (announcements.items.length === 0 && !hasFallback)) {
+      return items;
+    }
 
     const everyNMedia = announcements.everyNMedia;
     const repeat = Math.max(1, Math.ceil(everyNMedia / items.length));
@@ -221,6 +260,7 @@
     let mediaCount = 0;
     let announcementIndex = 0;
     let slot = 0;
+    const usingFallback = announcements.items.length === 0;
 
     for (let lap = 0; lap < repeat; lap += 1) {
       for (const item of items) {
@@ -228,25 +268,111 @@
         mediaCount += 1;
         if (mediaCount === everyNMedia) {
           mediaCount = 0;
-          const source = announcements.items[announcementIndex % announcements.items.length];
-          announcementIndex += 1;
-          result.push({
-            id: `announcement:${source.id}:${slot}`,
-            contentId: source.contentId,
-            // Identifica o comunicado nos metadados da captura (`ScreenshotZone.announcementId`).
-            announcementId: source.id,
-            name: '',
-            type: source.type,
-            url: source.url,
-            durationSeconds: announcements.durationSeconds,
-            validUntil: null,
-            isAnnouncement: true,
-          });
+          if (usingFallback) {
+            const fb = announcements.fallback;
+            result.push({
+              id: `announcement:fallback:${slot}`,
+              contentId: null,
+              announcementId: null,
+              name: '',
+              type: fb.type,
+              url: fb.url,
+              width: fb.width,
+              height: fb.height,
+              durationSeconds: fb.durationSeconds,
+              validUntil: null,
+              isAnnouncement: true,
+              isFallback: true,
+            });
+          } else {
+            const source = announcements.items[announcementIndex % announcements.items.length];
+            announcementIndex += 1;
+            result.push({
+              id: `announcement:${source.id}:${slot}`,
+              contentId: source.contentId,
+              // Identifica o comunicado nos metadados da captura (`ScreenshotZone.announcementId`).
+              announcementId: source.id,
+              name: '',
+              type: source.type,
+              url: source.url,
+              width: source.width,
+              height: source.height,
+              durationSeconds: announcements.durationSeconds,
+              validUntil: null,
+              isAnnouncement: true,
+            });
+          }
           slot += 1;
         }
       }
     }
     return result;
+  }
+
+  /**
+   * Hook de onde a notícia entra na intercalação com o comunicado (seção 6.2 do plano
+   * "Trilha D — Player"): não duplica `interleaveAnnouncements` — compõe com o
+   * resultado dela. Cada slot de comunicado (`isAnnouncement`, incluindo o de
+   * fallback de vídeo de marketing) passa a ocupar só a metade da tela que não é da
+   * unidade (seção 6.3), e a outra metade (`newsPosition`) ganha o painel de notícia
+   * em rotação circular. Unidade sem `newsPosition` configurado não muda em nada —
+   * é como uma unidade sem a "Trilha D" ligada ainda se comporta hoje.
+   *
+   * `newsRotation`: `{ items: [...normalizados por newsfeed.js], fallback: {...
+   * mesma forma do fallback de comunicado, para o vídeo de marketing} }`. Sem
+   * nenhuma notícia e sem fallback, a metade da notícia fica simplesmente vazia (o
+   * `render.js` decide o que mostrar nesse caso).
+   */
+  function attachNewsToAnnouncementSlots(items, newsPosition, newsRotation, startIndex = 0) {
+    if (!Array.isArray(items) || !newsPosition) return items;
+    const rotation = newsRotation || { items: [], fallback: null };
+    const newsItems = Array.isArray(rotation.items) ? rotation.items : [];
+    const fallback = rotation.fallback || null;
+    if (newsItems.length === 0 && !fallback) return items;
+
+    // `startIndex`: cada chamada reinicia o round robin só entre os slots desta
+    // mesma passada — sem persistir o cursor entre chamadas, uma zona com um único
+    // slot de comunicado nunca avançava (toda atualização de feed recomeçava em 0 e
+    // a 2ª notícia aprovada nunca aparecia). `app.js` passa e avança esse cursor.
+    let index = startIndex;
+    return items.map((item) => {
+      if (!item || !item.isAnnouncement) return item;
+
+      let news;
+      if (newsItems.length > 0) {
+        const source = newsItems[index % newsItems.length];
+        index += 1;
+        news = {
+          newsId: source.id,
+          title: source.title,
+          section: source.section,
+          imageUrl: source.imageUrl,
+          type: 'image',
+          photoCredit: source.photoCredit,
+          sourceName: source.sourceName,
+          shortUrl: source.shortUrl,
+          position: newsPosition,
+          isFallback: false,
+          fromCache: Boolean(source.fromCache),
+        };
+      } else {
+        news = {
+          newsId: null,
+          title: '',
+          section: '',
+          imageUrl: fallback.url,
+          type: fallback.type,
+          photoCredit: '',
+          sourceName: '',
+          shortUrl: null,
+          position: newsPosition,
+          isFallback: true,
+          fromCache: false,
+        };
+      }
+
+      return { ...item, news };
+    });
   }
 
   /**
@@ -264,7 +390,7 @@
         layout: 'fullscreen',
         zones: [{ position: 'full', playlist: null, items: [] }],
         infoBar: { ...DEFAULT_INFO_BAR },
-        announcements: { ...DEFAULT_ANNOUNCEMENTS },
+        announcements: { ...DEFAULT_ANNOUNCEMENTS, items: [], frame: normalizeAnnouncementFrame(null), fallback: null },
         evidenceSettings: normalizeEvidenceSettings(null),
         skippedItems: 0,
         legacy: true,
@@ -336,6 +462,7 @@
     normalizeAnnouncements,
     normalizeAnnouncementItem,
     interleaveAnnouncements,
+    attachNewsToAnnouncementSlots,
     normalizeInfoBar,
     normalizeInfoBarItem,
     normalizeEvidenceSettings,
